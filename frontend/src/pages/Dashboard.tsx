@@ -82,15 +82,31 @@ export default function Dashboard() {
         <div className="space-y-2">
           {(recent?.tickets ?? []).map((ticket) => (
             <Link key={ticket._id} to={`/tickets/${ticket._id}`}>
-              <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 hover:bg-accent/30 transition-colors">
-                <div className="flex items-center gap-3 min-w-0">
-                  <StatusBadge status={ticket.status} />
-                  <span className="text-sm font-medium truncate">{ticket.title}</span>
+              <div className="flex items-start justify-between rounded-lg border bg-card px-4 py-3 hover:bg-accent/30 transition-colors gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="mt-0.5 flex-shrink-0">
+                    <StatusBadge status={ticket.status} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium truncate block">{ticket.title}</span>
+                    {(ticket.jobber_entity_type || ticket.ghl_entity_type) && (
+                      <span className="flex items-center gap-1.5 mt-1 text-[11px]">
+                        <span className="bg-blue-500/10 text-blue-500 border border-blue-500/20 px-1.5 py-0.5 rounded font-medium capitalize">
+                          {ticket.jobber_entity_type ?? ticket.ghl_entity_type}
+                        </span>
+                        {(ticket.jobber_entity_label ?? ticket.ghl_entity_label) && (
+                          <span className="text-muted-foreground truncate">
+                            {ticket.jobber_entity_label ?? ticket.ghl_entity_label}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0 ml-4">
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
                   <PriorityBadge priority={ticket.priority} />
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(ticket.created_at).toLocaleDateString()}
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {new Date(ticket.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
                 </div>
               </div>

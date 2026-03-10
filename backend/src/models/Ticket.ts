@@ -21,6 +21,7 @@ export interface ITicket extends Document {
   ghl_entity_id?: string;
   ghl_entity_label?: string;
   tags: string[];
+  completed_at?: Date;
   created_at: Date;
   updated_at: Date;
 }
@@ -52,6 +53,7 @@ const TicketSchema = new Schema<ITicket>(
     ghl_entity_id: String,
     ghl_entity_label: { type: String, maxlength: 300 },
     tags: [String],
+    completed_at: { type: Date },
   },
   { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } }
 );

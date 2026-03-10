@@ -47,7 +47,7 @@ export default function Tickets() {
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
-    if (sort !== field) return <ArrowUpDown className="h-3 w-3 opacity-30 shrink-0" />;
+    if (sort !== field) return <ArrowUpDown className="h-3 w-3 opacity-50 shrink-0" />;
     return order === 'asc'
       ? <ArrowUp   className="h-3 w-3 text-primary shrink-0" />
       : <ArrowDown className="h-3 w-3 text-primary shrink-0" />;
@@ -170,7 +170,7 @@ export default function Tickets() {
         {/* Empty */}
         {!isLoading && tickets.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
-            <TicketCheck className="h-10 w-10 opacity-20" />
+            <TicketCheck className="h-10 w-10 opacity-40" />
             <p className="text-sm font-medium">No tickets found</p>
             {hasFilters && <p className="text-xs">Try changing your filters</p>}
             {!hasFilters && (

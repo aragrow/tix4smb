@@ -265,6 +265,7 @@ export default function TicketDetail() {
             <Select
               value={ticket.priority}
               onValueChange={(v) => updateTicket.mutate({ priority: v as TicketPriority })}
+              disabled={!editable}
             >
               <SelectTrigger className="h-7 w-auto gap-1">
                 <PriorityBadge priority={ticket.priority} />
@@ -295,99 +296,113 @@ export default function TicketDetail() {
       </div>
 
       {/* Meta */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-lg border bg-card p-4 text-sm">
-        <div>
-          <p className="text-muted-foreground text-xs mb-1">Created by</p>
-          <p>{ticket.created_by.name}</p>
-        </div>
-        {ticket.assigned_to && (
-          <div>
-            <p className="text-muted-foreground text-xs mb-1">Assigned to</p>
-            <p>{ticket.assigned_to.name}</p>
-          </div>
-        )}
-        <div>
-          <p className="text-muted-foreground text-xs mb-1">Created</p>
-          <p>{new Date(ticket.created_at).toLocaleString()}</p>
-        </div>
-        <div>
-          <p className="text-muted-foreground text-xs mb-1">Updated</p>
-          <p>{new Date(ticket.updated_at).toLocaleString()}</p>
-        </div>
-        <div>
-          <div className="flex items-center gap-1 mb-1">
-            <p className="text-muted-foreground text-xs">Jobber entity</p>
-            {editable && !editingJobber && !ticket.jobber_entity_type && (
-              <Button
-                variant="ghost" size="icon" className="h-5 w-5"
-                onClick={() => {
-                  setJobberTypeDraft(ticket.jobber_entity_type ?? '');
-                  setJobberIdDraft(ticket.jobber_entity_id ?? '');
-                  setJobberLabelDraft(ticket.jobber_entity_label ?? '');
-                  setEditingJobber(true);
-                }}
-              >
-                <Pencil className="h-3 w-3" />
-              </Button>
+      <div className="rounded-lg border bg-card p-4 text-sm">
+        <div className="grid grid-cols-2 gap-6 divide-x">
+          {/* Left: people + entity info */}
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Created by</p>
+              <p>{ticket.created_by.name}</p>
+            </div>
+            {ticket.assigned_to && (
+              <div>
+                <p className="text-muted-foreground text-xs mb-1">Assigned to</p>
+                <p>{ticket.assigned_to.name}</p>
+              </div>
+            )}
+            <div>
+              <div className="flex items-center gap-1 mb-1">
+                <p className="text-muted-foreground text-xs">Jobber entity</p>
+                {editable && !editingJobber && !ticket.jobber_entity_type && (
+                  <Button
+                    variant="ghost" size="icon" className="h-5 w-5"
+                    onClick={() => {
+                      setJobberTypeDraft(ticket.jobber_entity_type ?? '');
+                      setJobberIdDraft(ticket.jobber_entity_id ?? '');
+                      setJobberLabelDraft(ticket.jobber_entity_label ?? '');
+                      setEditingJobber(true);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              {editingJobber ? (
+                <div className="space-y-2">
+                  <JobberEntityPicker
+                    entityType={jobberTypeDraft}
+                    entityId={jobberIdDraft}
+                    onTypeChange={setJobberTypeDraft}
+                    onIdChange={setJobberIdDraft}
+                    onLabelChange={setJobberLabelDraft}
+                  />
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm" className="h-7 gap-1"
+                      disabled={!jobberTypeDraft || !jobberIdDraft || updateTicket.isPending}
+                      onClick={() => {
+                        updateTicket.mutate({
+                          jobber_entity_type: jobberTypeDraft as JobberEntityType,
+                          jobber_entity_id: jobberIdDraft,
+                          jobber_entity_label: jobberLabelDraft || undefined,
+                        });
+                        setEditingJobber(false);
+                      }}
+                    >
+                      <Check className="h-3 w-3" /> Save
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7" onClick={() => setEditingJobber(false)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ) : ticket.jobber_entity_type ? (
+                <JobberEntityDisplay
+                  type={ticket.jobber_entity_type}
+                  id={ticket.jobber_entity_id ?? ''}
+                  label={ticket.jobber_entity_label}
+                  entityInfo={jobberEntityInfo}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground italic">None</p>
+              )}
+            </div>
+            {ticket.ghl_entity_type && (
+              <div>
+                <p className="text-muted-foreground text-xs mb-1">GoHighLevel entity</p>
+                <GHLEntityDisplay
+                  type={ticket.ghl_entity_type}
+                  id={ticket.ghl_entity_id ?? ''}
+                  label={ticket.ghl_entity_label}
+                  entityInfo={ghlEntityInfo}
+                />
+              </div>
+            )}
+            {ticket.tags.length > 0 && (
+              <div>
+                <p className="text-muted-foreground text-xs mb-1">Tags</p>
+                <p>{ticket.tags.join(', ')}</p>
+              </div>
             )}
           </div>
-          {editingJobber ? (
-            <div className="space-y-2">
-              <JobberEntityPicker
-                entityType={jobberTypeDraft}
-                entityId={jobberIdDraft}
-                onTypeChange={setJobberTypeDraft}
-                onIdChange={setJobberIdDraft}
-                onLabelChange={setJobberLabelDraft}
-              />
-              <div className="flex gap-1">
-                <Button
-                  size="sm" className="h-7 gap-1"
-                  disabled={!jobberTypeDraft || !jobberIdDraft || updateTicket.isPending}
-                  onClick={() => {
-                    updateTicket.mutate({
-                      jobber_entity_type: jobberTypeDraft as JobberEntityType,
-                      jobber_entity_id: jobberIdDraft,
-                      jobber_entity_label: jobberLabelDraft || undefined,
-                    });
-                    setEditingJobber(false);
-                  }}
-                >
-                  <Check className="h-3 w-3" /> Save
-                </Button>
-                <Button variant="ghost" size="sm" className="h-7" onClick={() => setEditingJobber(false)}>
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
+          {/* Right: dates stacked */}
+          <div className="flex flex-col gap-2 pl-6">
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Created</p>
+              <p>{new Date(ticket.created_at).toLocaleString()}</p>
             </div>
-          ) : ticket.jobber_entity_type ? (
-            <JobberEntityDisplay
-              type={ticket.jobber_entity_type}
-              id={ticket.jobber_entity_id ?? ''}
-              label={ticket.jobber_entity_label}
-              entityInfo={jobberEntityInfo}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground italic">None</p>
-          )}
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Updated</p>
+              <p>{new Date(ticket.updated_at).toLocaleString()}</p>
+            </div>
+            {ticket.completed_at && (
+              <div>
+                <p className="text-muted-foreground text-xs mb-1">Completed</p>
+                <p>{new Date(ticket.completed_at).toLocaleString()}</p>
+              </div>
+            )}
+          </div>
         </div>
-        {ticket.ghl_entity_type && (
-          <div>
-            <p className="text-muted-foreground text-xs mb-1">GoHighLevel entity</p>
-            <GHLEntityDisplay
-              type={ticket.ghl_entity_type}
-              id={ticket.ghl_entity_id ?? ''}
-              label={ticket.ghl_entity_label}
-              entityInfo={ghlEntityInfo}
-            />
-          </div>
-        )}
-        {ticket.tags.length > 0 && (
-          <div>
-            <p className="text-muted-foreground text-xs mb-1">Tags</p>
-            <p>{ticket.tags.join(', ')}</p>
-          </div>
-        )}
       </div>
 
       {/* Description */}
@@ -397,26 +412,27 @@ export default function TicketDetail() {
             Description
           </h3>
           {editable && !editingDesc && (
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={startEditDesc}>
-              <Pencil className="h-3 w-3" />
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={startEditDesc}>
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
             </Button>
           )}
           <Button
-            variant="ghost"
+            variant={agentState === 'done' ? 'outline' : 'default'}
             size="sm"
-            className="h-6 px-2 text-xs gap-1 text-muted-foreground"
+            className={`gap-1.5 ${agentState === 'done' ? 'text-green-600 border-green-500/40' : ''}`}
             onClick={() => runAgent.mutate()}
-            disabled={agentState === 'running'}
-            title="Re-run the AI agent to analyze this ticket and add notes"
+            disabled={agentState === 'running' || !editable}
+            title="Re-run the AI agent to analyze this ticket and add tasks"
           >
             {agentState === 'running' ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : agentState === 'done' ? (
-              <CheckCircle className="h-3 w-3 text-green-500" />
+              <CheckCircle className="h-3.5 w-3.5" />
             ) : (
-              <Bot className="h-3 w-3" />
+              <Bot className="h-3.5 w-3.5" />
             )}
-            {agentState === 'running' ? 'Running...' : agentState === 'done' ? 'Done!' : 'Run AI'}
+            {agentState === 'running' ? 'Running…' : agentState === 'done' ? 'Done!' : 'Run AI'}
           </Button>
         </div>
 

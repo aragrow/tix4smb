@@ -29,6 +29,7 @@ export interface Ticket {
   ghl_entity_id?: string;
   ghl_entity_label?: string;
   tags: string[];
+  completed_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -42,7 +43,7 @@ export interface Note {
   created_at: string;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'done';
+export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'sent';
 
 export interface TicketTask {
   _id: string;

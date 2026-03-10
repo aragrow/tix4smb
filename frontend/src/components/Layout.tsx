@@ -58,12 +58,12 @@ export default function Layout() {
               {user?.name?.[0]?.toUpperCase()}
             </div>
           )}
-          <span className="text-sm text-muted-foreground truncate">{user?.name}</span>
+          <span className="text-sm text-sidebar-foreground truncate">{user?.name}</span>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground"
+          className="w-full justify-start gap-2 text-sidebar-foreground"
           onClick={() => logout.mutate()}
         >
           <LogOut className="h-4 w-4" />

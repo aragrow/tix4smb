@@ -44,7 +44,7 @@ const CreateTaskSchema = z.object({
 });
 
 const UpdateTaskSchema = CreateTaskSchema.partial().extend({
-  status: z.enum(['pending', 'in_progress', 'done']).optional(),
+  status: z.enum(['pending', 'in_progress', 'done', 'sent']).optional(),
   notes: z.string().max(5000).optional(),
 });
 
@@ -235,7 +235,13 @@ router.patch('/api/tickets/:id', async (req: Request, res: Response) => {
     res.status(400).json({ errors: result.error.flatten() });
     return;
   }
-  const ticket = await Ticket.findByIdAndUpdate(req.params.id, result.data, { new: true })
+  const update: Record<string, unknown> = { ...result.data };
+  if (result.data.status === 'closed') {
+    update.completed_at = new Date();
+  } else if (result.data.status && result.data.status !== 'closed') {
+    update.completed_at = null;
+  }
+  const ticket = await Ticket.findByIdAndUpdate(req.params.id, update, { new: true })
     .populate('created_by', 'name avatar_url')
     .lean();
   if (!ticket) {
@@ -464,27 +470,39 @@ router.post('/api/tickets/:id/tasks/bulk', async (req: Request, res: Response) =
       );
       break;
 
-    case 'notify':
+    case 'notify': {
+      const n = ids.length;
+      await TicketTask.updateMany(
+        { _id: { $in: ids }, ticket_ref: req.params.id },
+        { status: 'sent', updated_at: new Date() }
+      );
       await Note.create({
         ticket_ref: req.params.id,
         body: message
-          ? `Notification sent:\n\n${message}`
-          : `Notification sent for ${ids.length} task(s).`,
+          ? `Notification sent (${n} task${n !== 1 ? 's' : ''}):\n\n${message}`
+          : `Notification sent for ${n} task${n !== 1 ? 's' : ''}.`,
         agent_generated: true,
         created_at: new Date(),
       });
       break;
+    }
 
-    case 'rfp':
+    case 'rfp': {
+      const n = ids.length;
+      await TicketTask.updateMany(
+        { _id: { $in: ids }, ticket_ref: req.params.id },
+        { status: 'sent', updated_at: new Date() }
+      );
       await Note.create({
         ticket_ref: req.params.id,
         body: message
-          ? `Request for Proposal (RFP) sent:\n\n${message}`
-          : `Request for Proposal (RFP) sent for ${ids.length} task(s).`,
+          ? `Request for Proposal (RFP) sent (${n} task${n !== 1 ? 's' : ''}):\n\n${message}`
+          : `Request for Proposal (RFP) sent for ${n} task${n !== 1 ? 's' : ''}.`,
         agent_generated: true,
         created_at: new Date(),
       });
       break;
+    }
   }
 
   res.json({ ok: true, count: ids.length });

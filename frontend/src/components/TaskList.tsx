@@ -25,12 +25,14 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'Pending',
   in_progress: 'In Progress',
   done: 'Done',
+  sent: 'Sent',
 };
 
 const STATUS_CLASSES: Record<TaskStatus, string> = {
   pending: 'bg-muted text-muted-foreground',
   in_progress: 'bg-primary/20 text-primary',
   done: 'bg-green-500/20 text-green-600 dark:text-green-400',
+  sent: 'bg-violet-500/20 text-violet-600 dark:text-violet-400',
 };
 
 function TaskItem({
@@ -118,6 +120,7 @@ function TaskItem({
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="in_progress">In Progress</SelectItem>
               <SelectItem value="done">Done</SelectItem>
+              <SelectItem value="sent">Sent</SelectItem>
             </SelectContent>
           </Select>
           {editable && (

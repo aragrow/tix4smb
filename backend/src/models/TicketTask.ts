@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
-export type TaskStatus = 'pending' | 'in_progress' | 'done';
+export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'sent';
 export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor';
 
 export interface ITicketTask extends Document {
@@ -22,7 +22,7 @@ const TicketTaskSchema = new Schema<ITicketTask>(
     description: { type: String, required: true, maxlength: 2000 },
     status: {
       type: String,
-      enum: ['pending', 'in_progress', 'done'],
+      enum: ['pending', 'in_progress', 'done', 'sent'],
       default: 'pending',
     },
     agent_generated: { type: Boolean, default: false },
