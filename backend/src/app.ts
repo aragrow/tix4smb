@@ -12,6 +12,7 @@ import ticketsRouter from './routes/tickets';
 import jobberRouter from './routes/jobber';
 import webhooksRouter from './routes/webhooks';
 import settingsRouter from './routes/settings';
+import ghlRouter from './routes/ghl';
 
 export const app = express();
 
@@ -51,6 +52,7 @@ app.use(ticketsRouter);
 app.use(jobberRouter);
 app.use(webhooksRouter);
 app.use(settingsRouter);
+app.use(ghlRouter);
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, env: env.NODE_ENV });

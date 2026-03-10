@@ -20,6 +20,9 @@ const CreateTicketSchema = z.object({
   jobber_entity_type: z.enum(['client', 'job', 'visit', 'property', 'vendor']).optional(),
   jobber_entity_id: z.string().optional(),
   jobber_entity_label: z.string().max(300).optional(),
+  ghl_entity_type: z.enum(['contact', 'opportunity', 'appointment']).optional(),
+  ghl_entity_id: z.string().optional(),
+  ghl_entity_label: z.string().max(300).optional(),
   tags: z.array(z.string()).default([]),
 });
 
@@ -54,27 +57,151 @@ router.get('/api/me', async (req: Request, res: Response) => {
   res.json(user);
 });
 
+// ─── Bulk actions (must come before /:id routes) ───────────────────
+
+const BulkSchema = z.object({
+  ids: z.array(z.string()).min(1).max(200),
+  action: z.enum(['delete', 'status', 'notify', 'rfp']),
+  status: z.enum(['open', 'in_progress', 'resolved', 'closed']).optional(),
+});
+
+router.post('/api/tickets/bulk', async (req: Request, res: Response) => {
+  const result = BulkSchema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ errors: result.error.flatten() });
+    return;
+  }
+  const { ids, action, status } = result.data;
+
+  switch (action) {
+    case 'delete':
+      await Ticket.deleteMany({ _id: { $in: ids } });
+      await Note.deleteMany({ ticket_ref: { $in: ids } });
+      await TicketTask.deleteMany({ ticket_ref: { $in: ids } });
+      break;
+
+    case 'status':
+      if (!status) { res.status(400).json({ error: 'status required' }); return; }
+      await Ticket.updateMany({ _id: { $in: ids } }, { status, updated_at: new Date() });
+      break;
+
+    case 'notify':
+      await Note.insertMany(ids.map((id) => ({
+        ticket_ref: id,
+        body: 'Notification sent to stakeholders.',
+        agent_generated: true,
+        created_at: new Date(),
+      })));
+      break;
+
+    case 'rfp':
+      await Note.insertMany(ids.map((id) => ({
+        ticket_ref: id,
+        body: 'Request for Proposal (RFP) sent.',
+        agent_generated: true,
+        created_at: new Date(),
+      })));
+      break;
+  }
+
+  res.json({ ok: true, count: ids.length });
+});
+
 // ─── Tickets ───────────────────────────────────────────────────────
 
 router.get('/api/tickets', async (req: Request, res: Response) => {
-  const { status, priority, page = '1', limit = '20' } = req.query as Record<string, string>;
-  const filter: Record<string, unknown> = {};
-  if (status) filter.status = status;
-  if (priority) filter.priority = priority;
+  const {
+    status, priority, page = '1', limit = '20',
+    sort = 'created', order = 'desc',
+  } = req.query as Record<string, string>;
+
+  const match: Record<string, unknown> = {};
+  if (status) match.status = status;
+  if (priority) match.priority = priority;
 
   const skip = (parseInt(page) - 1) * parseInt(limit);
-  const [tickets, total] = await Promise.all([
-    Ticket.find(filter)
-      .populate('created_by', 'name avatar_url')
-      .populate('assigned_to', 'name avatar_url')
-      .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean(),
-    Ticket.countDocuments(filter),
+  const dir = order === 'asc' ? 1 : -1;
+
+  const SORT_FIELDS: Record<string, string> = {
+    number:   'ticket_number',
+    title:    'title',
+    status:   'statusOrder',
+    priority: 'priorityOrder',
+    created:  'created_at',
+  };
+  const sortField = SORT_FIELDS[sort] ?? 'created_at';
+
+  const [result] = await Ticket.aggregate([
+    { $match: match },
+    {
+      $addFields: {
+        priorityOrder: {
+          $switch: {
+            branches: [
+              { case: { $eq: ['$priority', 'low'] },    then: 1 },
+              { case: { $eq: ['$priority', 'medium'] }, then: 2 },
+              { case: { $eq: ['$priority', 'high'] },   then: 3 },
+              { case: { $eq: ['$priority', 'urgent'] }, then: 4 },
+            ],
+            default: 0,
+          },
+        },
+        statusOrder: {
+          $switch: {
+            branches: [
+              { case: { $eq: ['$status', 'open'] },        then: 1 },
+              { case: { $eq: ['$status', 'in_progress'] }, then: 2 },
+              { case: { $eq: ['$status', 'resolved'] },    then: 3 },
+              { case: { $eq: ['$status', 'closed'] },      then: 4 },
+            ],
+            default: 0,
+          },
+        },
+      },
+    },
+    { $sort: { [sortField]: dir as 1 | -1, _id: -1 } },
+    {
+      $facet: {
+        data: [
+          { $skip: skip },
+          { $limit: parseInt(limit) },
+          { $lookup: { from: 'users', localField: 'created_by',  foreignField: '_id', as: 'created_by_arr'  } },
+          { $lookup: { from: 'users', localField: 'assigned_to', foreignField: '_id', as: 'assigned_to_arr' } },
+          {
+            $addFields: {
+              created_by: {
+                $let: {
+                  vars: { u: { $arrayElemAt: ['$created_by_arr', 0] } },
+                  in: { _id: '$$u._id', name: '$$u.name', avatar_url: '$$u.avatar_url' },
+                },
+              },
+              assigned_to: {
+                $cond: {
+                  if: { $gt: [{ $size: '$assigned_to_arr' }, 0] },
+                  then: {
+                    $let: {
+                      vars: { u: { $arrayElemAt: ['$assigned_to_arr', 0] } },
+                      in: { _id: '$$u._id', name: '$$u.name', avatar_url: '$$u.avatar_url' },
+                    },
+                  },
+                  else: null,
+                },
+              },
+            },
+          },
+          { $project: { created_by_arr: 0, assigned_to_arr: 0, priorityOrder: 0, statusOrder: 0 } },
+        ],
+        total: [{ $count: 'count' }],
+      },
+    },
   ]);
 
-  res.json({ tickets, total, page: parseInt(page), limit: parseInt(limit) });
+  res.json({
+    tickets: result?.data ?? [],
+    total:   result?.total?.[0]?.count ?? 0,
+    page:    parseInt(page),
+    limit:   parseInt(limit),
+  });
 });
 
 router.post('/api/tickets', async (req: Request, res: Response) => {
@@ -242,6 +369,54 @@ router.patch('/api/tickets/:id/tasks/:taskId', async (req: Request, res: Respons
     return;
   }
   res.json(task);
+});
+
+router.post('/api/tickets/:id/tasks/bulk', async (req: Request, res: Response) => {
+  const schema = z.object({
+    ids: z.array(z.string()).min(1).max(200),
+    action: z.enum(['delete', 'status', 'notify', 'rfp']),
+    status: z.enum(['pending', 'in_progress', 'done']).optional(),
+  });
+  const result = schema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ errors: result.error.flatten() });
+    return;
+  }
+  const { ids, action, status } = result.data;
+
+  switch (action) {
+    case 'delete':
+      await TicketTask.deleteMany({ _id: { $in: ids }, ticket_ref: req.params.id });
+      break;
+
+    case 'status':
+      if (!status) { res.status(400).json({ error: 'status required' }); return; }
+      await TicketTask.updateMany(
+        { _id: { $in: ids }, ticket_ref: req.params.id },
+        { status, updated_at: new Date() }
+      );
+      break;
+
+    case 'notify':
+      await Note.create({
+        ticket_ref: req.params.id,
+        body: `Notification sent for ${ids.length} task(s).`,
+        agent_generated: true,
+        created_at: new Date(),
+      });
+      break;
+
+    case 'rfp':
+      await Note.create({
+        ticket_ref: req.params.id,
+        body: `Request for Proposal (RFP) sent for ${ids.length} task(s).`,
+        agent_generated: true,
+        created_at: new Date(),
+      });
+      break;
+  }
+
+  res.json({ ok: true, count: ids.length });
 });
 
 router.delete('/api/tickets/:id/tasks/:taskId', async (req: Request, res: Response) => {

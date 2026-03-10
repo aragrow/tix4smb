@@ -1,6 +1,7 @@
 # Backend
 backend/.env.local
 backend/.jobber-tokens.json
+backend/.ghl-config.json
 backend/ai-config.json
 backend/dist/
 backend/node_modules/

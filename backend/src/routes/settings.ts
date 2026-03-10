@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { loadAIConfig, saveAIConfig, PROVIDER_MODELS, type AIProvider } from '../services/aiConfig';
+import { saveGHLConfig, clearGHLConfig, hasGHLConfig, getGHLConfig } from '../services/ghlClient';
 import { authenticate } from '../middleware/authenticate';
 
 const router = Router();
@@ -13,6 +14,28 @@ router.get('/api/settings/ai', (_req: Request, res: Response) => {
 router.post('/api/settings/ai', (req: Request, res: Response) => {
   const { provider, model } = req.body as { provider: AIProvider; model: string };
   saveAIConfig({ provider, model });
+  res.json({ ok: true });
+});
+
+// ─── GHL settings ──────────────────────────────────────────────────
+
+router.get('/api/settings/ghl', (_req: Request, res: Response) => {
+  const cfg = getGHLConfig();
+  res.json({ connected: hasGHLConfig(), location_id: cfg?.location_id ?? '' });
+});
+
+router.post('/api/settings/ghl', (req: Request, res: Response) => {
+  const { api_key, location_id } = req.body as { api_key?: string; location_id?: string };
+  if (!api_key || !location_id) {
+    res.status(400).json({ error: 'api_key and location_id are required' });
+    return;
+  }
+  saveGHLConfig({ api_key, location_id });
+  res.json({ ok: true });
+});
+
+router.delete('/api/settings/ghl', (_req: Request, res: Response) => {
+  clearGHLConfig();
   res.json({ ok: true });
 });
 

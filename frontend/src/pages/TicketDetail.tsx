@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/api/client';
-import type { Ticket, TicketStatus, TicketPriority, TicketTask, JobberEntityType } from '@/types';
+import type { Ticket, TicketStatus, TicketPriority, TicketTask, JobberEntityType, GHLEntityType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,15 +11,12 @@ import { NoteThread } from '@/components/NoteThread';
 import { TaskList } from '@/components/TaskList';
 import { ChevronLeft, Trash2, Pencil, Check, X, Bot, Loader2, CheckCircle } from 'lucide-react';
 
-const ENTITY_TYPE_LABELS: Record<string, string> = {
-  client: 'Client',
-  job: 'Job',
-  visit: 'Visit',
-  property: 'Property',
-  vendor: 'Vendor',
-};
+// ─── Jobber entity display ───────────────────────────────────────────────────
 
-const ENTITY_TYPE_COLORS: Record<string, string> = {
+const JOBBER_TYPE_LABELS: Record<string, string> = {
+  client: 'Client', job: 'Job', visit: 'Visit', property: 'Property', vendor: 'Vendor',
+};
+const JOBBER_TYPE_COLORS: Record<string, string> = {
   client:   'bg-blue-500/15 text-blue-600 dark:text-blue-400',
   job:      'bg-amber-500/15 text-amber-600 dark:text-amber-400',
   visit:    'bg-violet-500/15 text-violet-600 dark:text-violet-400',
@@ -28,27 +25,20 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
 };
 
 function JobberEntityDisplay({
-  type,
-  id,
-  label,
-  entityInfo,
+  type, id, label, entityInfo,
 }: {
   type: JobberEntityType;
   id: string;
   label?: string;
   entityInfo?: { type: string; id: string; label: string; name?: string; title?: string; scheduledStart?: string; address?: string; client?: { name: string } };
 }) {
-  const typeLabel = ENTITY_TYPE_LABELS[type] ?? type;
-  const typeColor = ENTITY_TYPE_COLORS[type] ?? 'bg-muted text-muted-foreground';
-
-  // Derive primary name and secondary detail lines
+  const typeLabel = JOBBER_TYPE_LABELS[type] ?? type;
+  const typeColor = JOBBER_TYPE_COLORS[type] ?? 'bg-muted text-muted-foreground';
   let primary = label ?? id;
   const secondary: string[] = [];
-
   if (entityInfo) {
-    if (type === 'client') {
-      primary = entityInfo.name ?? entityInfo.label;
-    } else if (type === 'job') {
+    if (type === 'client') { primary = entityInfo.name ?? entityInfo.label; }
+    else if (type === 'job') {
       primary = entityInfo.title ?? entityInfo.label;
       if (entityInfo.address) secondary.push(entityInfo.address);
       if (entityInfo.client) secondary.push(`Client: ${entityInfo.client.name}`);
@@ -57,17 +47,12 @@ function JobberEntityDisplay({
       if (entityInfo.scheduledStart) secondary.push(entityInfo.scheduledStart);
       if (entityInfo.address) secondary.push(entityInfo.address);
       if (entityInfo.client) secondary.push(`Client: ${entityInfo.client.name}`);
-    } else {
-      primary = entityInfo.label;
-    }
+    } else { primary = entityInfo.label; }
   }
-
   return (
     <div className="flex flex-col gap-0.5">
       <p className="text-sm flex items-center gap-2">
-        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${typeColor}`}>
-          {typeLabel}
-        </span>
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${typeColor}`}>{typeLabel}</span>
         {primary}
       </p>
       {secondary.map((line, i) => (
@@ -76,6 +61,57 @@ function JobberEntityDisplay({
     </div>
   );
 }
+
+// ─── GHL entity display ──────────────────────────────────────────────────────
+
+const GHL_TYPE_LABELS: Record<string, string> = {
+  contact: 'Contact', opportunity: 'Opportunity', appointment: 'Appointment',
+};
+const GHL_TYPE_COLORS: Record<string, string> = {
+  contact:     'bg-teal-500/15 text-teal-600 dark:text-teal-400',
+  opportunity: 'bg-orange-500/15 text-orange-600 dark:text-orange-400',
+  appointment: 'bg-pink-500/15 text-pink-600 dark:text-pink-400',
+};
+
+function GHLEntityDisplay({
+  type, id, label, entityInfo,
+}: {
+  type: GHLEntityType;
+  id: string;
+  label?: string;
+  entityInfo?: { type: string; id: string; label: string; name?: string; title?: string; startTime?: string; address?: string; contact?: { name: string }; pipelineStage?: string };
+}) {
+  const typeLabel = GHL_TYPE_LABELS[type] ?? type;
+  const typeColor = GHL_TYPE_COLORS[type] ?? 'bg-muted text-muted-foreground';
+  let primary = label ?? id;
+  const secondary: string[] = [];
+  if (entityInfo) {
+    if (type === 'contact') { primary = entityInfo.name ?? entityInfo.label; }
+    else if (type === 'opportunity') {
+      primary = entityInfo.name ?? entityInfo.label;
+      if (entityInfo.pipelineStage) secondary.push(entityInfo.pipelineStage);
+      if (entityInfo.contact) secondary.push(`Contact: ${entityInfo.contact.name}`);
+    } else if (type === 'appointment') {
+      primary = entityInfo.title ?? entityInfo.label;
+      if (entityInfo.startTime) secondary.push(entityInfo.startTime);
+      if (entityInfo.address) secondary.push(entityInfo.address);
+      if (entityInfo.contact) secondary.push(`Contact: ${entityInfo.contact.name}`);
+    } else { primary = entityInfo.label; }
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="text-sm flex items-center gap-2">
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${typeColor}`}>{typeLabel}</span>
+        {primary}
+      </p>
+      {secondary.map((line, i) => (
+        <p key={i} className="text-xs text-muted-foreground mt-0.5">{line}</p>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main component ──────────────────────────────────────────────────────────
 
 export default function TicketDetail() {
   const { id } = useParams<{ id: string }>();
@@ -109,17 +145,27 @@ export default function TicketDetail() {
     enabled: Boolean(id),
   });
 
-  // Fetch rich entity details when ticket has entity but no stored label
-  const needsEntityLookup = Boolean(
+  // Jobber entity lookup (only when no stored label)
+  const needsJobberLookup = Boolean(
     ticket?.jobber_entity_type && ticket.jobber_entity_id && !ticket.jobber_entity_label
   );
-  const { data: entityInfo } = useQuery<{ type: string; id: string; label: string; name?: string; title?: string; scheduledStart?: string; address?: string; client?: { name: string } }>({
+  const { data: jobberEntityInfo } = useQuery<{ type: string; id: string; label: string; name?: string; title?: string; scheduledStart?: string; address?: string; client?: { name: string } }>({
     queryKey: ['jobber-entity', ticket?.jobber_entity_type, ticket?.jobber_entity_id],
     queryFn: () =>
-      api
-        .get(`/api/jobber/entity?type=${ticket!.jobber_entity_type!}&id=${ticket!.jobber_entity_id!}`)
-        .then((r) => r.data),
-    enabled: needsEntityLookup,
+      api.get(`/api/jobber/entity?type=${ticket!.jobber_entity_type!}&id=${ticket!.jobber_entity_id!}`).then((r) => r.data),
+    enabled: needsJobberLookup,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // GHL entity lookup (only when no stored label)
+  const needsGHLLookup = Boolean(
+    ticket?.ghl_entity_type && ticket.ghl_entity_id && !ticket.ghl_entity_label
+  );
+  const { data: ghlEntityInfo } = useQuery<{ type: string; id: string; label: string; name?: string; title?: string; startTime?: string; address?: string; contact?: { name: string }; pipelineStage?: string }>({
+    queryKey: ['ghl-entity', ticket?.ghl_entity_type, ticket?.ghl_entity_id],
+    queryFn: () =>
+      api.get(`/api/ghl/entity?type=${ticket!.ghl_entity_type!}&id=${ticket!.ghl_entity_id!}`).then((r) => r.data),
+    enabled: needsGHLLookup,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -173,7 +219,7 @@ export default function TicketDetail() {
   };
 
   return (
-    <div className="p-8 max-w-4xl space-y-8">
+    <div className="p-4 md:p-8 w-full max-w-8xl space-y-6 md:space-y-8">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link to="/tickets">
@@ -189,8 +235,7 @@ export default function TicketDetail() {
       {/* Header */}
       <div className="space-y-4">
         <h2 className="text-2xl font-bold">{ticket.title}</h2>
-        <div className="flex flex-wrap gap-3 items-center">
-          {/* Status */}
+        <div className="flex flex-wrap gap-2 items-center">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Status</span>
             <Select
@@ -209,7 +254,6 @@ export default function TicketDetail() {
             </Select>
           </div>
 
-          {/* Priority */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Priority</span>
             <Select
@@ -262,7 +306,7 @@ export default function TicketDetail() {
       </div>
 
       {/* Meta */}
-      <div className="grid grid-cols-2 gap-4 rounded-lg border bg-card p-4 text-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-lg border bg-card p-4 text-sm">
         <div>
           <p className="text-muted-foreground text-xs mb-1">Created by</p>
           <p>{ticket.created_by.name}</p>
@@ -288,7 +332,18 @@ export default function TicketDetail() {
               type={ticket.jobber_entity_type}
               id={ticket.jobber_entity_id ?? ''}
               label={ticket.jobber_entity_label}
-              entityInfo={entityInfo}
+              entityInfo={jobberEntityInfo}
+            />
+          </div>
+        )}
+        {ticket.ghl_entity_type && (
+          <div>
+            <p className="text-muted-foreground text-xs mb-1">GoHighLevel entity</p>
+            <GHLEntityDisplay
+              type={ticket.ghl_entity_type}
+              id={ticket.ghl_entity_id ?? ''}
+              label={ticket.ghl_entity_label}
+              entityInfo={ghlEntityInfo}
             />
           </div>
         )}

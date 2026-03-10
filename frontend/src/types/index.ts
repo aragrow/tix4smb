@@ -11,6 +11,7 @@ export interface User {
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor';
+export type GHLEntityType = 'contact' | 'opportunity' | 'appointment';
 
 export interface Ticket {
   _id: string;
@@ -24,6 +25,9 @@ export interface Ticket {
   jobber_entity_type?: JobberEntityType;
   jobber_entity_id?: string;
   jobber_entity_label?: string;
+  ghl_entity_type?: GHLEntityType;
+  ghl_entity_id?: string;
+  ghl_entity_label?: string;
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -98,4 +102,29 @@ export interface JobberVisit {
   status: 'scheduled' | 'completed' | 'unscheduled';
   client: { id: string; name: string };
   property: { id: string; street: string; city: string };
+}
+
+export interface GHLContact {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  tags?: string[];
+}
+
+export interface GHLOpportunity {
+  id: string;
+  name: string;
+  contact?: { id: string; name: string };
+  pipelineStage?: string;
+  monetaryValue?: number;
+}
+
+export interface GHLAppointment {
+  id: string;
+  title: string;
+  contact?: { id: string; name: string };
+  startTime: string;
+  status?: string;
+  address?: string;
 }

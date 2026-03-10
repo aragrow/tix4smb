@@ -1,4 +1,5 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import api from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,11 @@ import { useMockJobber } from '@/hooks/useMockJobber';
 
 interface JobberStatus {
   connected: boolean;
+}
+
+interface GHLStatus {
+  connected: boolean;
+  location_id?: string;
 }
 
 type AIProvider = 'anthropic' | 'openai' | 'google';
@@ -23,10 +29,21 @@ export default function Settings() {
   const justConnected = searchParams.get('jobber') === 'connected';
   const connectionError = searchParams.get('error');
   const { enabled: mockEnabled, toggle: toggleMock } = useMockJobber();
+  const queryClient = useQueryClient();
+
+  // GHL form state
+  const [ghlApiKey, setGhlApiKey] = useState('');
+  const [ghlLocationId, setGhlLocationId] = useState('');
+  const [showGhlForm, setShowGhlForm] = useState(false);
 
   const { data: jobberStatus, refetch } = useQuery<JobberStatus>({
     queryKey: ['jobber-status'],
     queryFn: () => api.get<JobberStatus>('/api/jobber/status').then((r) => r.data),
+  });
+
+  const { data: ghlStatus, refetch: refetchGHL } = useQuery<GHLStatus>({
+    queryKey: ['ghl-status'],
+    queryFn: () => api.get<GHLStatus>('/api/ghl/status').then((r) => r.data),
   });
 
   const { data: aiSettings, refetch: refetchAI } = useQuery<AISettings>({
@@ -45,15 +62,35 @@ export default function Settings() {
     onSuccess: () => void refetchAI(),
   });
 
+  const saveGHL = useMutation({
+    mutationFn: (payload: { api_key: string; location_id: string }) =>
+      api.post('/api/settings/ghl', payload).then((r) => r.data),
+    onSuccess: () => {
+      void refetchGHL();
+      void queryClient.invalidateQueries({ queryKey: ['ghl-contacts'] });
+      void queryClient.invalidateQueries({ queryKey: ['ghl-opportunities'] });
+      void queryClient.invalidateQueries({ queryKey: ['ghl-appointments'] });
+      setShowGhlForm(false);
+      setGhlApiKey('');
+      setGhlLocationId('');
+    },
+  });
+
+  const disconnectGHL = useMutation({
+    mutationFn: () => api.delete('/api/settings/ghl').then((r) => r.data),
+    onSuccess: () => void refetchGHL(),
+  });
+
   const handleConnectJobber = () => {
     window.location.href = `${import.meta.env.VITE_API_URL as string}/auth/jobber`;
   };
 
-  const isConnected = jobberStatus?.connected ?? false;
+  const isJobberConnected = jobberStatus?.connected ?? false;
+  const isGHLConnected = ghlStatus?.connected ?? false;
   const currentModels = aiSettings ? aiSettings.providers[aiSettings.provider] ?? [] : [];
 
   return (
-    <div className="p-8 max-w-2xl space-y-6">
+    <div className="p-4 md:p-8 w-full max-w-8xl space-y-6">
       <h2 className="text-2xl font-bold">Settings</h2>
 
       {justConnected && (
@@ -175,6 +212,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      {/* Jobber Integration */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -187,7 +225,7 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-2">
-            {isConnected ? (
+            {isJobberConnected ? (
               <>
                 <CheckCircle className="h-4 w-4 text-green-400" />
                 <span className="text-sm text-green-400">Connected</span>
@@ -201,7 +239,7 @@ export default function Settings() {
           </div>
 
           <div className="flex gap-3">
-            {!isConnected ? (
+            {!isJobberConnected ? (
               <Button onClick={handleConnectJobber}>
                 Connect Jobber
               </Button>
@@ -222,11 +260,123 @@ export default function Settings() {
             )}
           </div>
 
-          {isConnected && (
+          {isJobberConnected && (
             <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
               <p>Tokens are stored in <code className="font-mono">backend/.jobber-tokens.json</code></p>
               <p>Tokens refresh automatically when they expire.</p>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* GoHighLevel Integration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Plug className="h-5 w-5" />
+            GoHighLevel Integration
+          </CardTitle>
+          <CardDescription>
+            Connect GoHighLevel to link tickets to contacts, opportunities, and appointments.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            {isGHLConnected ? (
+              <>
+                <CheckCircle className="h-4 w-4 text-green-400" />
+                <span className="text-sm text-green-400">Connected</span>
+                {ghlStatus?.location_id && (
+                  <span className="text-xs text-muted-foreground ml-1">
+                    (Location: <code className="font-mono">{ghlStatus.location_id}</code>)
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <XCircle className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Not connected</span>
+              </>
+            )}
+          </div>
+
+          {!showGhlForm && (
+            <div className="flex gap-3">
+              <Button
+                variant={isGHLConnected ? 'outline' : 'default'}
+                onClick={() => setShowGhlForm(true)}
+              >
+                {isGHLConnected ? 'Update Credentials' : 'Connect GoHighLevel'}
+              </Button>
+              {isGHLConnected && (
+                <Button
+                  variant="outline"
+                  className="text-destructive-foreground hover:bg-destructive/20"
+                  onClick={() => disconnectGHL.mutate()}
+                  disabled={disconnectGHL.isPending}
+                >
+                  Disconnect
+                </Button>
+              )}
+            </div>
+          )}
+
+          {showGhlForm && (
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">API Key</label>
+                <input
+                  type="password"
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-mono"
+                  value={ghlApiKey}
+                  onChange={(e) => setGhlApiKey(e.target.value)}
+                  placeholder="eyJhbGciOiJIUzI1..."
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Found in GHL → Settings → Integrations → API Keys
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Location ID</label>
+                <input
+                  type="text"
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm font-mono"
+                  value={ghlLocationId}
+                  onChange={(e) => setGhlLocationId(e.target.value)}
+                  placeholder="abc123xyz..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Found in GHL → Settings → Business Profile → Location ID
+                </p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  size="sm"
+                  onClick={() => saveGHL.mutate({ api_key: ghlApiKey, location_id: ghlLocationId })}
+                  disabled={!ghlApiKey.trim() || !ghlLocationId.trim() || saveGHL.isPending}
+                >
+                  {saveGHL.isPending ? 'Saving...' : 'Save'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setShowGhlForm(false); setGhlApiKey(''); setGhlLocationId(''); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              {saveGHL.isError && (
+                <p className="text-xs text-destructive">Failed to save. Check your credentials.</p>
+              )}
+            </div>
+          )}
+
+          {!isGHLConnected && !showGhlForm && (
+            <p className="text-xs text-muted-foreground">
+              Mock GHL data is used when not connected. Contacts, opportunities, and appointments
+              will pull from sample cleaning-service records.
+            </p>
           )}
         </CardContent>
       </Card>
