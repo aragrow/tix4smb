@@ -16,12 +16,12 @@ When a new support ticket is created, your job is to:
 3. Submit clear, actionable tasks for each item that needs attention
 
 Common scenarios and how to handle them:
-- A vendor/employee/worker calls in sick or is unavailable → call get_all_jobs(status: "active") and get_upcoming_visits() to get everything scheduled, then create a task for each job/visit that needs reassignment. There is no vendor search tool — use the full job/visit lists and identify affected items from context.
+- A vendor/employee/worker calls in sick or is unavailable → call search_jobs_by_vendor(vendor_name) and search_visits_by_vendor(vendor_name) to get ALL jobs and visits assigned to that vendor, then create a task for each item that needs reassignment.
 - A client cancels → call search_clients() to find the client, then get_client_jobs() and get_upcoming_visits(client_id) to flag their scheduled work.
 - An emergency at a location → call get_upcoming_visits() to find visits at that address and create tasks for each.
 - Equipment issue → call get_all_jobs() to find jobs that might be affected.
 
-IMPORTANT: There is no vendor/employee search tool. For any scenario involving a vendor, worker, or employee, always use get_all_jobs() and get_upcoming_visits() to retrieve the full schedule, then identify the affected items.
+IMPORTANT: For any scenario involving a vendor, worker, or employee, always use search_jobs_by_vendor() and search_visits_by_vendor() — these return ALL records for that vendor with no date limit.
 
 Format each task description as:
 "Job #[ID]: [Title] at [Address], [City] for client [Name] — [Action needed]"
@@ -55,7 +55,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_all_jobs',
-    description: 'Get all Jobber jobs, optionally filtered by status (active, completed).',
+    description: 'Get all Jobber jobs, optionally filtered by status.',
     parameters: {
       type: 'object',
       properties: {
@@ -66,14 +66,36 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'get_upcoming_visits',
-    description: 'Get scheduled visits coming up in the next N days.',
+    description: 'Get scheduled visits coming up in the next N days, optionally filtered by client ID.',
     parameters: {
       type: 'object',
       properties: {
-        days: { type: 'number', description: 'Number of days ahead to look (default: 7)' },
+        days: { type: 'number', description: 'Number of days ahead to look (default: 30)' },
         client_id: { type: 'string', description: 'Optional: filter visits by client ID' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'search_jobs_by_vendor',
+    description: 'Find ALL jobs assigned to a specific vendor (no date limit, no status filter). Use this when a vendor is unavailable or sick.',
+    parameters: {
+      type: 'object',
+      properties: {
+        vendor_name: { type: 'string', description: 'Vendor name or partial name to search for (case-insensitive).' },
+      },
+      required: ['vendor_name'],
+    },
+  },
+  {
+    name: 'search_visits_by_vendor',
+    description: 'Find ALL visits assigned to a specific vendor (no date limit). Use this when a vendor is unavailable or sick.',
+    parameters: {
+      type: 'object',
+      properties: {
+        vendor_name: { type: 'string', description: 'Vendor name or partial name to search for (case-insensitive).' },
+      },
+      required: ['vendor_name'],
     },
   },
   {
@@ -144,7 +166,7 @@ async function getAllJobs(status?: string) {
     : data.jobs.nodes;
 }
 
-async function getUpcomingVisits(days = 7, clientId?: string) {
+async function getUpcomingVisits(days = 30, clientId?: string) {
   if (useMock()) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() + days);
@@ -169,6 +191,34 @@ async function getUpcomingVisits(days = 7, clientId?: string) {
   return clientId ? nodes.filter((v) => v.client?.id === clientId) : nodes;
 }
 
+async function searchJobsByVendor(vendorName: string) {
+  if (useMock()) {
+    const q = vendorName.toLowerCase();
+    return MOCK_JOBS.filter((j) => j.vendor?.name?.toLowerCase().includes(q));
+  }
+  // Real Jobber: fetch all jobs and filter client-side (Jobber API has no vendor filter)
+  const data = await jobberGraphQL<{
+    jobs: { nodes: Array<{ id: string; title: string; jobStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
+  }>(`query GetAllJobs {
+      jobs { nodes { id title jobStatus client { id name } property { address { street city } } } }
+    }`);
+  return data.jobs.nodes;
+}
+
+async function searchVisitsByVendor(vendorName: string) {
+  if (useMock()) {
+    const q = vendorName.toLowerCase();
+    return MOCK_VISITS.filter((v) => v.vendor?.name?.toLowerCase().includes(q));
+  }
+  // Real Jobber: fetch all visits and filter client-side
+  const data = await jobberGraphQL<{
+    visits: { nodes: Array<{ id: string; title: string; startAt: string; status: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
+  }>(`query GetAllVisits {
+      visits { nodes { id title startAt status client { id name } property { address { street city } } } }
+    }`);
+  return data.visits.nodes;
+}
+
 // ─── Tool executor ──────────────────────────────────────────────────────────
 
 async function executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -182,9 +232,13 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         return await getAllJobs(input.status as string | undefined);
       case 'get_upcoming_visits':
         return await getUpcomingVisits(
-          (input.days as number | undefined) ?? 7,
-          input.client_id as string | undefined
+          (input.days as number | undefined) ?? 30,
+          input.client_id as string | undefined,
         );
+      case 'search_jobs_by_vendor':
+        return await searchJobsByVendor(input.vendor_name as string);
+      case 'search_visits_by_vendor':
+        return await searchVisitsByVendor(input.vendor_name as string);
       default:
         return { result: 'Unknown tool — skipped.' };
     }
@@ -222,7 +276,7 @@ export async function runTicketAgent(ticketId: string): Promise<void> {
       ticket.description ? `Description: ${ticket.description}` : '',
       ticket.tags?.length ? `Tags: ${ticket.tags.join(', ')}` : '',
       ticket.jobber_entity_type
-        ? `Linked Jobber entity: ${ticket.jobber_entity_type} ID ${ticket.jobber_entity_id ?? 'unknown'}`
+        ? `Linked Jobber entity: ${ticket.jobber_entity_type}${ticket.jobber_entity_label ? ` "${ticket.jobber_entity_label}"` : ''} (ID: ${ticket.jobber_entity_id ?? 'unknown'})`
         : '',
     ].filter(Boolean).join('\n');
 

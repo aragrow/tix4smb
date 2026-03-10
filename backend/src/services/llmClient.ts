@@ -149,9 +149,8 @@ async function runOpenAI(opts: AgentOptions): Promise<void> {
 
 async function runGemini(opts: AgentOptions): Promise<void> {
   const genAI = new GoogleGenerativeAI(opts.apiKey);
-  const max = opts.maxIterations ?? 6;
+  const max = opts.maxIterations ?? 10;
 
-  // Gemini uses functionDeclarations format
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const functionDeclarations = opts.tools.map((t) => ({
     name: t.name,
@@ -163,22 +162,20 @@ async function runGemini(opts: AgentOptions): Promise<void> {
     model: opts.model,
     systemInstruction: opts.system,
     tools: [{ functionDeclarations }],
-    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.AUTO } },
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY } },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const history: any[] = [];
-  const chat = model.startChat({ history });
+  const chat = model.startChat({ history: [] });
 
-  let userMsg: string = opts.userMessage;
+  // Send initial message, then loop on the response
+  let response = (await chat.sendMessage(opts.userMessage)).response;
 
   for (let i = 0; i < max; i++) {
-    const result = await chat.sendMessage(userMsg);
-    const response = result.response;
     const parts = response.candidates?.[0]?.content?.parts ?? [];
-
-    const fnCalls = parts.filter((p: { functionCall?: unknown }) => p.functionCall);
-    if (!fnCalls.length) break; // no tool calls → done
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fnCalls = parts.filter((p: any) => p.functionCall);
+    console.log(`[Gemini] iteration ${i}: ${fnCalls.length} fn call(s) —`, fnCalls.map((p: any) => p.functionCall?.name));
+    if (!fnCalls.length) break;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fnResults: any[] = [];
@@ -199,15 +196,9 @@ async function runGemini(opts: AgentOptions): Promise<void> {
     }
 
     if (done) break;
-    // Send function results back
-    const nextResult = await chat.sendMessage(fnResults);
-    // Check if the model wants to do more tool calls
-    const nextParts = nextResult.response.candidates?.[0]?.content?.parts ?? [];
-    const moreCalls = nextParts.filter((p: { functionCall?: unknown }) => p.functionCall);
-    if (!moreCalls.length) break;
-    // Loop will pick up from here via the chat history
-    userMsg = JSON.stringify(fnResults); // won't be used if history is maintained
-    i++; // account for the extra round
+
+    // Send all tool results back and use the reply as the next response to inspect
+    response = (await chat.sendMessage(fnResults)).response;
   }
 }
 

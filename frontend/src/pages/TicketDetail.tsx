@@ -55,6 +55,7 @@ function JobberEntityDisplay({
       <p className="text-sm flex items-center gap-2">
         <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${typeColor}`}>{typeLabel}</span>
         {primary}
+        <span className="text-xs text-muted-foreground">({id})</span>
       </p>
       {secondary.map((line, i) => (
         <p key={i} className="text-xs text-muted-foreground mt-0.5">{line}</p>
