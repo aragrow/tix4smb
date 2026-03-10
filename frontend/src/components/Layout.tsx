@@ -69,6 +69,9 @@ export default function Layout() {
           <LogOut className="h-4 w-4" />
           Sign out
         </Button>
+        <p className="text-center text-[10px] text-sidebar-foreground pt-2 tracking-wide">
+          Developed by Aragrow, LLC
+        </p>
       </div>
     </>
   );
@@ -78,9 +81,16 @@ export default function Layout() {
 
       {/* ── Desktop sidebar ── */}
       <aside className="hidden md:flex w-56 flex-shrink-0 bg-sidebar border-r border-sidebar-border flex-col">
-        <div className="p-4 border-b border-sidebar-border">
-          <h1 className="font-semibold text-foreground flex items-center gap-2">
-            <Ticket className="h-5 w-5 text-primary" />
+        <div
+          className="p-4 border-b border-sidebar-border relative overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, #3D0008 0%, #92000A 100%)' }}
+        >
+          {/* Gold top accent bar */}
+          <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, #C4A044, #D4B84A, #C4A044)' }} />
+          <h1 className="font-black text-white flex items-center gap-2.5">
+            <div className="h-7 w-7 rounded-lg flex items-center justify-center shadow-md" style={{ background: '#C4A044' }}>
+              <Ticket className="h-4 w-4" style={{ color: '#3D0008' }} />
+            </div>
             TIX4SMB
           </h1>
         </div>
@@ -97,14 +107,20 @@ export default function Layout() {
           />
           {/* drawer */}
           <aside className="absolute left-0 top-0 bottom-0 w-64 bg-sidebar border-r border-sidebar-border flex flex-col z-50">
-            <div className="p-4 border-b border-sidebar-border flex items-center justify-between">
-              <h1 className="font-semibold text-foreground flex items-center gap-2">
-                <Ticket className="h-5 w-5 text-primary" />
+            <div
+              className="p-4 border-b border-sidebar-border flex items-center justify-between relative overflow-hidden"
+              style={{ background: 'linear-gradient(135deg, #3D0008 0%, #92000A 100%)' }}
+            >
+              <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, #C4A044, #D4B84A, #C4A044)' }} />
+              <h1 className="font-black text-white flex items-center gap-2.5">
+                <div className="h-7 w-7 rounded-lg flex items-center justify-center shadow-md" style={{ background: '#C4A044' }}>
+                  <Ticket className="h-4 w-4" style={{ color: '#3D0008' }} />
+                </div>
                 TIX4SMB
               </h1>
               <button
                 onClick={() => setMobileOpen(false)}
-                className="text-muted-foreground hover:text-foreground"
+                className="text-white/60 hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -118,15 +134,21 @@ export default function Layout() {
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Mobile top bar */}
-        <header className="md:hidden flex items-center gap-3 px-4 py-3 border-b bg-sidebar shrink-0">
+        <header
+          className="md:hidden flex items-center gap-3 px-4 py-3 border-b shrink-0 relative"
+          style={{ background: 'linear-gradient(135deg, #3D0008 0%, #92000A 100%)' }}
+        >
+          <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, #C4A044, #D4B84A, #C4A044)' }} />
           <button
             onClick={() => setMobileOpen(true)}
-            className="text-muted-foreground hover:text-foreground"
+            className="text-white/70 hover:text-white"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="font-semibold text-foreground flex items-center gap-2 text-sm">
-            <Ticket className="h-4 w-4 text-primary" />
+          <h1 className="font-black text-white flex items-center gap-2 text-sm">
+            <div className="h-5 w-5 rounded flex items-center justify-center" style={{ background: '#C4A044' }}>
+              <Ticket className="h-3 w-3" style={{ color: '#3D0008' }} />
+            </div>
             TIX4SMB
           </h1>
         </header>

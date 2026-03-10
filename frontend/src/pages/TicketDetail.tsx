@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { StatusBadge, PriorityBadge } from '@/components/StatusBadge';
 import { NoteThread } from '@/components/NoteThread';
 import { TaskList } from '@/components/TaskList';
-import { ChevronLeft, Trash2, Pencil, Check, X, Bot, Loader2, CheckCircle } from 'lucide-react';
+import { ChevronLeft, Trash2, Pencil, Check, X, Bot, Loader2, CheckCircle, Mail } from 'lucide-react';
 import { JobberEntityPicker } from '@/components/JobberEntityPicker';
+import { Input } from '@/components/ui/input';
 
 // ─── Jobber entity display ───────────────────────────────────────────────────
 
@@ -127,6 +128,9 @@ export default function TicketDetail() {
   const [jobberLabelDraft, setJobberLabelDraft] = useState('');
   const [agentState, setAgentState] = useState<'idle' | 'running' | 'done'>('idle');
   const agentNoteBaselineRef = useRef<number | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
 
   const { data: tasks } = useQuery<TicketTask[]>({
     queryKey: ['tasks', id],
@@ -192,6 +196,24 @@ export default function TicketDetail() {
       setAgentState('running');
     },
     onError: () => setAgentState('idle'),
+  });
+
+  const sendEmail = useMutation({
+    mutationFn: () =>
+      api.post('/api/ghl/email', {
+        ticketId: ticket!._id,
+        contactId: ticket!.ghl_entity_id,
+        emailTo: ghlEntityInfo?.email ?? '',
+        subject: emailSubject,
+        body: emailBody,
+        contactLabel: ghlEntityInfo?.name ?? ticket!.ghl_entity_label,
+      }),
+    onSuccess: () => {
+      setEmailModalOpen(false);
+      setEmailSubject('');
+      setEmailBody('');
+      void queryClient.invalidateQueries({ queryKey: ['notes', id] });
+    },
   });
 
   const deleteTicket = useMutation({
@@ -376,6 +398,17 @@ export default function TicketDetail() {
                   label={ticket.ghl_entity_label}
                   entityInfo={ghlEntityInfo}
                 />
+                {ticket.ghl_entity_type === 'contact' && ghlEntityInfo?.email && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 gap-1.5 h-7 text-xs"
+                    onClick={() => setEmailModalOpen(true)}
+                  >
+                    <Mail className="h-3 w-3" />
+                    Send Email
+                  </Button>
+                )}
               </div>
             )}
             {ticket.tags.length > 0 && (
@@ -478,6 +511,69 @@ export default function TicketDetail() {
       <div className="border-t pt-8">
         <NoteThread ticketId={ticket._id} ticketStatus={ticket.status} />
       </div>
+
+      {/* Send Email Modal */}
+      {emailModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setEmailModalOpen(false)} />
+          <div className="relative bg-card border rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold flex items-center gap-2">
+                <Mail className="h-4 w-4" />
+                Send Email via GoHighLevel
+              </h2>
+              <button onClick={() => setEmailModalOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">To</p>
+                <p className="font-medium">
+                  {ghlEntityInfo?.name ?? ticket.ghl_entity_label}{' '}
+                  <span className="text-muted-foreground font-normal">({ghlEntityInfo?.email})</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Subject</p>
+                <Input
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Email subject…"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Message</p>
+                <Textarea
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  placeholder="Write your message…"
+                  rows={6}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" size="sm" onClick={() => setEmailModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => sendEmail.mutate()}
+                disabled={!emailSubject.trim() || !emailBody.trim() || sendEmail.isPending}
+                className="gap-1.5"
+              >
+                {sendEmail.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Mail className="h-3.5 w-3.5" />
+                )}
+                {sendEmail.isPending ? 'Sending…' : 'Send Email'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

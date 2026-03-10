@@ -5,28 +5,52 @@ import { runAgentLoop, type ToolDef } from './llmClient';
 import { loadAIConfig } from './aiConfig';
 import { env } from '../config/env';
 import { MOCK_CLIENTS, MOCK_JOBS, MOCK_VISITS } from '../lib/mockJobberData';
+import { loadBusinessConfig } from '../lib/businessConfig';
 
 // ─── System prompt ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a ticket intelligence agent for TIX4SMB, a ticket management system for a cleaning services business that uses Jobber for field operations.
+function buildSystemPrompt(): string {
+  const biz = loadBusinessConfig();
+
+  const serviceLines = Object.entries(biz.services)
+    .map(([code, name]) => `  ${code} = ${name}`)
+    .join('\n');
+
+  const locationLines = biz.locations.map((l) => `  - ${l}`).join('\n');
+
+  return `You are a ticket intelligence agent for TIX4SMB, a ticket management system for a cleaning services business that uses Jobber for field operations.
 
 When a new support ticket is created, your job is to:
 1. Analyze the ticket title and description to understand the situation
 2. Use the available tools to find relevant Jobber data (clients, jobs, visits)
 3. Submit clear, actionable tasks for each item that needs attention
 
-Common scenarios and how to handle them:
-- A vendor/employee/worker calls in sick or is unavailable → call search_jobs_by_vendor(vendor_name) and search_visits_by_vendor(vendor_name) to get ALL jobs and visits assigned to that vendor, then create a task for each item that needs reassignment.
+## Business context
+
+Service types (vendors carry tags matching these codes):
+${serviceLines}
+
+Service locations:
+${locationLines}
+
+Vendors in Jobber have tags that indicate which services they provide (using the codes above) and which locations they cover. Use the service codes and locations to classify each job and identify what type of replacement vendor is needed.
+
+## Common scenarios
+
+- A vendor/employee/worker calls in sick or is unavailable → call search_jobs_by_vendor(vendor_name) and search_visits_by_vendor(vendor_name) to get ALL jobs and visits assigned to that vendor, then create a task for each item that needs reassignment. Each task must include the service type and location so the right replacement vendor can be found.
 - A client cancels → call search_clients() to find the client, then get_client_jobs() and get_upcoming_visits(client_id) to flag their scheduled work.
 - An emergency at a location → call get_upcoming_visits() to find visits at that address and create tasks for each.
 - Equipment issue → call get_all_jobs() to find jobs that might be affected.
 
 IMPORTANT: For any scenario involving a vendor, worker, or employee, always use search_jobs_by_vendor() and search_visits_by_vendor() — these return ALL records for that vendor with no date limit.
 
+## Task format
+
 Format each task description as:
-"Job #[ID]: [Title] at [Address], [City] for client [Name] — [Action needed]"
+"[Visit/Job] #[ID]: [Title] at [Address], [City] for client [Name] — Need [service name] vendor in [location] to cover"
 
 Always call submit_tasks() when done. If no action items are found, submit an empty tasks array. Never submit tasks that are error messages, apologies, or explanations — only submit actionable job/visit information.`;
+}
 
 // ─── Tool definitions ───────────────────────────────────────────────────────
 
@@ -289,7 +313,7 @@ export async function runTicketAgent(ticketId: string): Promise<void> {
         provider: config.provider,
         model: config.model,
         apiKey,
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt(),
         userMessage,
         tools: TOOLS,
         executeTool,

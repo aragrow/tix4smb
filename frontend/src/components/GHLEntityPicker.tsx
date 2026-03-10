@@ -3,6 +3,7 @@ import api from '@/api/client';
 import type { GHLContact, GHLOpportunity, GHLAppointment, GHLEntityType } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MOCK_GHL_CONTACTS, MOCK_GHL_OPPORTUNITIES, MOCK_GHL_APPOINTMENTS } from '@/lib/mockGHLData';
+import { isMockGHLEnabled } from '@/hooks/useMockGHL';
 
 interface GHLEntityPickerProps {
   entityType: GHLEntityType | '';
@@ -12,16 +13,6 @@ interface GHLEntityPickerProps {
   onLabelChange?: (label: string) => void;
 }
 
-// Use mock data when GHL is not connected (API returns 400 or empty)
-function useMockGHL() {
-  const { data } = useQuery<{ connected: boolean }>({
-    queryKey: ['ghl-status'],
-    queryFn: () => api.get<{ connected: boolean }>('/api/ghl/status').then((r) => r.data),
-    staleTime: 30_000,
-  });
-  return !data?.connected;
-}
-
 export function GHLEntityPicker({
   entityType,
   entityId,
@@ -29,7 +20,12 @@ export function GHLEntityPicker({
   onIdChange,
   onLabelChange,
 }: GHLEntityPickerProps) {
-  const useMock = useMockGHL();
+  const { data: ghlStatus } = useQuery<{ connected: boolean }>({
+    queryKey: ['ghl-status'],
+    queryFn: () => api.get<{ connected: boolean }>('/api/ghl/status').then((r) => r.data),
+    staleTime: 30_000,
+  });
+  const useMock = isMockGHLEnabled() || !ghlStatus?.connected;
 
   const { data: contacts = [] } = useQuery<GHLContact[]>({
     queryKey: ['ghl-contacts', useMock],

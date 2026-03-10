@@ -1,0 +1,18 @@
+{
+  "services": {
+    "rc": "house cleaning service",
+    "vr": "vacation rental cleaning service",
+    "oc": "office cleaning service",
+    "cc": "construction cleaning service",
+    "dc": "deep cleaning service",
+    "io": "move in move out cleaning service"
+  },
+  "locations": [
+    "key west fl",
+    "islamorada fl",
+    "key largo fl",
+    "marathon fl",
+    "tavernier fl",
+    "big pine key fl"
+  ]
+}

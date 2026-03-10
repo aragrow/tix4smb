@@ -107,7 +107,7 @@ export default function Login() {
         {/* Bottom quote */}
         <div className="relative z-10 flex items-center gap-3">
           <div className="h-px flex-1" style={{ background: 'rgba(245,184,0,0.3)' }} />
-          <p className="text-white/40 text-xs tracking-wider uppercase">Jobber integrated</p>
+          <p className="text-white/40 text-xs tracking-wider uppercase">Jobber integrated · GoHighLevel integrated</p>
           <div className="h-px flex-1" style={{ background: 'rgba(245,184,0,0.3)' }} />
         </div>
 
@@ -210,6 +210,9 @@ export default function Login() {
           {/* Footer */}
           <p className="text-center text-xs text-neutral-500 mt-6">
             By signing in you agree to the terms of service
+          </p>
+          <p className="text-center text-[10px] text-neutral-400 mt-2 tracking-wide">
+            Developed by Aragrow, LLC
           </p>
         </div>
       </div>

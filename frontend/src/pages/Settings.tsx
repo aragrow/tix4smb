@@ -5,8 +5,9 @@ import api from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle, XCircle, RefreshCw, Plug, FlaskConical, Bot } from 'lucide-react';
+import { CheckCircle, XCircle, RefreshCw, Plug, FlaskConical, Bot, TestTube2, Send } from 'lucide-react';
 import { useMockJobber } from '@/hooks/useMockJobber';
+import { useMockGHL } from '@/hooks/useMockGHL';
 
 interface JobberStatus {
   connected: boolean;
@@ -15,6 +16,42 @@ interface JobberStatus {
 interface GHLStatus {
   connected: boolean;
   location_id?: string;
+}
+
+interface GHLDNDSettings {
+  Call?:     { status: string };
+  Email?:    { status: string };
+  SMS?:      { status: string };
+  WhatsApp?: { status: string };
+  GMB?:      { status: string };
+  FB?:       { status: string };
+}
+
+interface GHLTestContact {
+  id: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  tags?: string[];
+  classification?: string;
+  communicationPreference?: string;
+  dnd?: boolean;
+  dndSettings?: GHLDNDSettings;
+}
+
+function isDND(c: GHLTestContact, channel: keyof GHLDNDSettings): boolean {
+  return c.dnd === true || c.dndSettings?.[channel]?.status === 'active';
+}
+
+interface GHLTestResult {
+  contacts: GHLTestContact[];
+  classification: string;
+  serviceTag: string;
+  locationTag: string;
+  mock: boolean;
+  total: number;
 }
 
 type AIProvider = 'anthropic' | 'openai' | 'google';
@@ -29,12 +66,18 @@ export default function Settings() {
   const justConnected = searchParams.get('jobber') === 'connected';
   const connectionError = searchParams.get('error');
   const { enabled: mockEnabled, toggle: toggleMock } = useMockJobber();
+  const { enabled: mockGHLEnabled, toggle: toggleMockGHL } = useMockGHL();
   const queryClient = useQueryClient();
 
   // GHL form state
   const [ghlApiKey, setGhlApiKey] = useState('');
   const [ghlLocationId, setGhlLocationId] = useState('');
   const [showGhlForm, setShowGhlForm] = useState(false);
+  const [ghlTestOpen, setGhlTestOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notifyType, setNotifyType] = useState<'SMS' | 'Email'>('SMS');
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifySubject, setNotifySubject] = useState('Test Message from TIX4SMB');
 
   const { data: jobberStatus, refetch } = useQuery<JobberStatus>({
     queryKey: ['jobber-status'],
@@ -44,6 +87,13 @@ export default function Settings() {
   const { data: ghlStatus, refetch: refetchGHL } = useQuery<GHLStatus>({
     queryKey: ['ghl-status'],
     queryFn: () => api.get<GHLStatus>('/api/ghl/status').then((r) => r.data),
+  });
+
+  const { data: ghlTestResult, isFetching: ghlTestFetching } = useQuery<GHLTestResult>({
+    queryKey: ['ghl-test-query'],
+    queryFn: () => api.get<GHLTestResult>('/api/ghl/contacts/test-query').then((r) => r.data),
+    enabled: ghlTestOpen,
+    staleTime: 0,
   });
 
   const { data: aiSettings, refetch: refetchAI } = useQuery<AISettings>({
@@ -81,6 +131,18 @@ export default function Settings() {
     onSuccess: () => void refetchGHL(),
   });
 
+  const sendNotify = useMutation({
+    mutationFn: () =>
+      api.post('/api/ghl/test-notify', {
+        type: notifyType,
+        message: notifyMessage,
+        subject: notifySubject,
+      }).then((r) => r.data),
+    onSuccess: () => {
+      setNotifyMessage('');
+    },
+  });
+
   const handleConnectJobber = () => {
     window.location.href = `${import.meta.env.VITE_API_URL as string}/auth/jobber`;
   };
@@ -115,7 +177,7 @@ export default function Settings() {
             Use sample data instead of live Jobber data so you can test without a connected account.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <label className="flex items-center gap-3 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -130,6 +192,31 @@ export default function Settings() {
               </p>
             </div>
             {mockEnabled && (
+              <span className="ml-auto text-xs font-medium text-warning bg-warning/10 border border-warning/30 px-2 py-0.5 rounded-full">
+                Mock active
+              </span>
+            )}
+          </label>
+
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-primary cursor-pointer"
+              checked={mockGHLEnabled}
+              onChange={(e) => {
+                toggleMockGHL(e.target.checked);
+                void queryClient.invalidateQueries({ queryKey: ['ghl-contacts'] });
+                void queryClient.invalidateQueries({ queryKey: ['ghl-opportunities'] });
+                void queryClient.invalidateQueries({ queryKey: ['ghl-appointments'] });
+              }}
+            />
+            <div>
+              <p className="text-sm font-medium">Use mock GoHighLevel data</p>
+              <p className="text-xs text-muted-foreground">
+                Populates contact, opportunity, and appointment pickers with sample records.
+              </p>
+            </div>
+            {mockGHLEnabled && (
               <span className="ml-auto text-xs font-medium text-warning bg-warning/10 border border-warning/30 px-2 py-0.5 rounded-full">
                 Mock active
               </span>
@@ -256,6 +343,14 @@ export default function Settings() {
                 <Button variant="outline" onClick={handleConnectJobber}>
                   Reconnect
                 </Button>
+                <Button variant="outline" className="gap-1.5" disabled title="Coming soon">
+                  <TestTube2 className="h-4 w-4" />
+                  Test Job Query
+                </Button>
+                <Button variant="outline" className="gap-1.5" disabled title="Coming soon">
+                  <Send className="h-4 w-4" />
+                  Notify Test Client
+                </Button>
               </>
             )}
           </div>
@@ -301,7 +396,7 @@ export default function Settings() {
           </div>
 
           {!showGhlForm && (
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Button
                 variant={isGHLConnected ? 'outline' : 'default'}
                 onClick={() => setShowGhlForm(true)}
@@ -309,14 +404,31 @@ export default function Settings() {
                 {isGHLConnected ? 'Update Credentials' : 'Connect GoHighLevel'}
               </Button>
               {isGHLConnected && (
-                <Button
-                  variant="outline"
-                  className="text-destructive-foreground hover:bg-destructive/20"
-                  onClick={() => disconnectGHL.mutate()}
-                  disabled={disconnectGHL.isPending}
-                >
-                  Disconnect
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setGhlTestOpen(true)}
+                  >
+                    <TestTube2 className="h-4 w-4" />
+                    Test Contact Query
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setNotifyOpen(true)}
+                  >
+                    <Send className="h-4 w-4" />
+                    Notify Test Vendor
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => disconnectGHL.mutate()}
+                    disabled={disconnectGHL.isPending}
+                  >
+                    {disconnectGHL.isPending ? 'Disconnecting...' : 'Disconnect'}
+                  </Button>
+                </>
               )}
             </div>
           )}
@@ -380,6 +492,189 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+
+      {/* Notify Test Vendor Modal */}
+      {notifyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-background border rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h3 className="font-semibold text-base flex items-center gap-2">
+                <Send className="h-4 w-4 text-primary" />
+                Notify Test Vendor
+              </h3>
+              <button
+                className="text-muted-foreground hover:text-foreground text-lg leading-none"
+                onClick={() => { setNotifyOpen(false); sendNotify.reset(); }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Sending to: <span className="text-foreground font-medium">David Aragov</span>
+                <span className="font-mono ml-1 opacity-60">(T8Bf5irLuFExhsihKB2j)</span>
+              </p>
+
+              {/* Type selector */}
+              <div className="flex gap-3">
+                {(['SMS', 'Email'] as const).map((t) => (
+                  <label key={t} className="flex items-center gap-2 cursor-pointer select-none text-sm">
+                    <input
+                      type="radio"
+                      name="notifyType"
+                      value={t}
+                      checked={notifyType === t}
+                      onChange={() => setNotifyType(t)}
+                      className="accent-primary"
+                    />
+                    {t}
+                  </label>
+                ))}
+              </div>
+
+              {/* Subject (email only) */}
+              {notifyType === 'Email' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Subject</label>
+                  <input
+                    type="text"
+                    className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                    value={notifySubject}
+                    onChange={(e) => setNotifySubject(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {/* Message */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Message</label>
+                <textarea
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+                  rows={4}
+                  placeholder={notifyType === 'SMS' ? 'Enter SMS message...' : 'Enter email body...'}
+                  value={notifyMessage}
+                  onChange={(e) => setNotifyMessage(e.target.value)}
+                />
+              </div>
+
+              {sendNotify.isSuccess && (
+                <p className="text-xs text-green-400">
+                  {notifyType} sent successfully.
+                </p>
+              )}
+              {sendNotify.isError && (
+                <p className="text-xs text-destructive break-words">
+                  {(sendNotify.error as { response?: { data?: { error?: string } } })?.response?.data?.error
+                    ?? 'Send failed — check backend console for details.'}
+                </p>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setNotifyOpen(false); sendNotify.reset(); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={!notifyMessage.trim() || sendNotify.isPending}
+                onClick={() => sendNotify.mutate()}
+              >
+                <Send className="h-3.5 w-3.5" />
+                {sendNotify.isPending ? 'Sending...' : `Send ${notifyType}`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GHL Test Query Modal */}
+      {ghlTestOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-background border rounded-xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div>
+                <h3 className="font-semibold text-base flex items-center gap-2">
+                  <TestTube2 className="h-4 w-4 text-primary" />
+                  GHL Contact Query Test
+                </h3>
+                {ghlTestResult && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Classification: <span className="text-foreground font-medium">{ghlTestResult.classification}</span>
+                    {' · '}Service: <span className="text-foreground font-medium">{ghlTestResult.serviceTag}</span>
+                    {' · '}Location: <span className="text-foreground font-medium">{ghlTestResult.locationTag}</span>
+                    {ghlTestResult.mock && <span className="ml-2 text-warning">(mock)</span>}
+                  </p>
+                )}
+              </div>
+              <button
+                className="text-muted-foreground hover:text-foreground text-lg leading-none"
+                onClick={() => setGhlTestOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {ghlTestFetching ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">Querying GoHighLevel...</p>
+              ) : ghlTestResult ? (
+                ghlTestResult.contacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    No contacts found matching these filters.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground mb-3">
+                      {ghlTestResult.total} contact{ghlTestResult.total !== 1 ? 's' : ''} matched
+                    </p>
+                    {ghlTestResult.contacts.map((c) => {
+                      const name = c.name ?? [c.firstName, c.lastName].filter(Boolean).join(' ') ?? c.id;
+                      return (
+                        <div key={c.id} className="rounded-lg border bg-muted/30 px-4 py-3 text-sm space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-medium">{name}</p>
+                            {c.communicationPreference && (
+                              <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize
+                                bg-sky-500/10 text-sky-400 border-sky-500/30">
+                                {c.communicationPreference}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                            {c.email && !isDND(c, 'Email') && <span>{c.email}</span>}
+                            {c.phone && !isDND(c, 'Call') && !isDND(c, 'SMS') && <span>{c.phone}</span>}
+                          </div>
+                          {c.tags && c.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {c.tags.map((t) => (
+                                <span key={t} className="bg-primary/15 text-primary text-[10px] px-1.5 py-0.5 rounded font-medium">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : null}
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setGhlTestOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
