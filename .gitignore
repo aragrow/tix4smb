@@ -1,5 +1,5 @@
 # Backend
-backend/.env.local
+backend/.env.*
 backend/.jobber-tokens.json
 backend/.ghl-config.json
 backend/ai-config.json
@@ -7,10 +7,10 @@ backend/dist/
 backend/node_modules/
 
 # Root secrets
-.env.local
+.env.*  
 
 # Frontend
-frontend/.env.local
+frontend/.env.*
 frontend/dist/
 frontend/node_modules/
 
@@ -32,3 +32,5 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+/json

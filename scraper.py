@@ -55,8 +55,14 @@ async def scrape_vendors(url: str) -> list[dict]:
                     if phone_btn:
                         phone = (await phone_btn.inner_text()).strip()
 
-                results.append({"name": name, "phone": phone or "N/A"})
-                print(f"    {name}: {phone or 'N/A'}")
+                address = None
+                addr_el = await page.query_selector('button[data-item-id="address"]')
+                if addr_el:
+                    label = await addr_el.get_attribute("aria-label") or ""
+                    address = label.replace("Address:", "").strip() or None
+
+                results.append({"name": name, "phone": phone or "N/A", "address": address})
+                print(f"    {name}: {phone or 'N/A'}  |  {address or 'no address'}")
 
             except Exception:
                 continue
@@ -146,7 +152,9 @@ def combine_vendors(output_files: list[str]) -> list[dict]:
         for v in data["vendors"]:
             key = v["phone"] if v["phone"] != "N/A" else v["name"].lower().strip()
             if key not in vendors:
-                vendors[key] = {"name": v["name"], "phone": v["phone"], "services": [], "locations": []}
+                vendors[key] = {"name": v["name"], "phone": v["phone"], "address": v.get("address"), "prospect_vendor": 1, "services": [], "locations": []}
+            if not vendors[key].get("address") and v.get("address"):
+                vendors[key]["address"] = v["address"]
             if service not in vendors[key]["services"]:
                 vendors[key]["services"].append(service)
             if location not in vendors[key]["locations"]:
@@ -160,16 +168,14 @@ def save_outputs(combined: list[dict]):
         json.dump(combined, f, indent=2)
 
     with open(JSON_DIR / "vendors-combined.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["Company", "Phone", "Website", "Address", "Rating", "Contact", "Tags"])
+        writer = csv.DictWriter(f, fieldnames=["Company", "Phone", "Address", "Prospect Vendor", "Tags"])
         writer.writeheader()
         for v in combined:
             writer.writerow({
                 "Company": v["name"],
                 "Phone": v["phone"] if v["phone"] != "N/A" else "",
-                "Website": v.get("website") or "",
                 "Address": v.get("address") or "",
-                "Rating": v.get("rating") or "",
-                "Contact": v.get("contact") or "",
+                "Prospect Vendor": v.get("prospect_vendor", 1),
                 "Tags": ", ".join(v["services"] + v["locations"])
             })
 
@@ -208,10 +214,6 @@ async def main():
     print("\nCombining all results...")
     combined = combine_vendors(output_files)
     print(f"  {len(combined)} unique vendors found")
-
-    # Enrich each vendor with website, address, rating, contact
-    print("\nEnriching vendor details from Google Maps...")
-    combined = await enrich_vendors(combined)
 
     # Save JSON + CSV
     save_outputs(combined)
