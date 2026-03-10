@@ -6,6 +6,8 @@ import { TicketTask } from '../models/TicketTask';
 import { User } from '../models/User';
 import { authenticate } from '../middleware/authenticate';
 import { runTicketAgent } from '../services/ticketAgent';
+import { loadAIConfig } from '../services/aiConfig';
+import { env } from '../config/env';
 
 const router = Router();
 router.use(authenticate);
@@ -329,6 +331,70 @@ router.post('/api/tickets/:id/run-agent', async (req: Request, res: Response) =>
   res.json({ ok: true });
 });
 
+// ─── AI message enhance ────────────────────────────────────────────
+
+router.post('/api/tickets/:id/ai-enhance', async (req: Request, res: Response) => {
+  const schema = z.object({
+    message: z.string().min(1).max(5000),
+    type: z.enum(['notify', 'rfp']),
+    context: z.string().max(2000).optional(),
+  });
+  const result = schema.safeParse(req.body);
+  if (!result.success) {
+    res.status(400).json({ errors: result.error.flatten() });
+    return;
+  }
+
+  const { message, type, context } = result.data;
+  const config = loadAIConfig();
+
+  const systemPrompt = type === 'notify'
+    ? 'You are a professional business communications assistant. Enhance the following notification message to be clear, professional, and actionable. Preserve the original intent but improve clarity and tone. Return only the enhanced message text, no extra commentary.'
+    : 'You are a professional business communications assistant. Enhance the following Request for Proposal (RFP) to be clear, professional, and comprehensive. Preserve the original intent but improve clarity and structure. Return only the enhanced message text, no extra commentary.';
+
+  const userMessage = context ? `${context}\n\nMessage:\n${message}` : message;
+
+  try {
+    let enhanced = message;
+
+    if (config.provider === 'anthropic' && env.ANTHROPIC_API_KEY) {
+      const Anthropic = (await import('@anthropic-ai/sdk')).default;
+      const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+      const resp = await client.messages.create({
+        model: config.model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      });
+      enhanced = resp.content[0].type === 'text' ? resp.content[0].text : message;
+
+    } else if (config.provider === 'openai' && env.OPENAI_API_KEY) {
+      const OpenAI = (await import('openai')).default;
+      const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+      const resp = await client.chat.completions.create({
+        model: config.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+      });
+      enhanced = resp.choices[0].message.content ?? message;
+
+    } else if (config.provider === 'google' && env.GOOGLE_API_KEY) {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
+      const model = genAI.getGenerativeModel({ model: config.model, systemInstruction: systemPrompt });
+      const resp = await model.generateContent(userMessage);
+      enhanced = resp.response.text();
+    }
+
+    res.json({ enhanced });
+  } catch (err) {
+    console.error('[AI Enhance]', err);
+    res.status(500).json({ error: 'Failed to enhance message' });
+  }
+});
+
 // ─── Tasks ─────────────────────────────────────────────────────────
 
 router.get('/api/tickets/:id/tasks', async (req: Request, res: Response) => {
@@ -376,13 +442,14 @@ router.post('/api/tickets/:id/tasks/bulk', async (req: Request, res: Response) =
     ids: z.array(z.string()).min(1).max(200),
     action: z.enum(['delete', 'status', 'notify', 'rfp']),
     status: z.enum(['pending', 'in_progress', 'done']).optional(),
+    message: z.string().max(5000).optional(),
   });
   const result = schema.safeParse(req.body);
   if (!result.success) {
     res.status(400).json({ errors: result.error.flatten() });
     return;
   }
-  const { ids, action, status } = result.data;
+  const { ids, action, status, message } = result.data;
 
   switch (action) {
     case 'delete':
@@ -400,7 +467,9 @@ router.post('/api/tickets/:id/tasks/bulk', async (req: Request, res: Response) =
     case 'notify':
       await Note.create({
         ticket_ref: req.params.id,
-        body: `Notification sent for ${ids.length} task(s).`,
+        body: message
+          ? `Notification sent:\n\n${message}`
+          : `Notification sent for ${ids.length} task(s).`,
         agent_generated: true,
         created_at: new Date(),
       });
@@ -409,7 +478,9 @@ router.post('/api/tickets/:id/tasks/bulk', async (req: Request, res: Response) =
     case 'rfp':
       await Note.create({
         ticket_ref: req.params.id,
-        body: `Request for Proposal (RFP) sent for ${ids.length} task(s).`,
+        body: message
+          ? `Request for Proposal (RFP) sent:\n\n${message}`
+          : `Request for Proposal (RFP) sent for ${ids.length} task(s).`,
         agent_generated: true,
         created_at: new Date(),
       });

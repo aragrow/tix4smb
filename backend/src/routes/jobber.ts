@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { env } from '../config/env';
 import { authenticate } from '../middleware/authenticate';
 import { jobberGraphQL, hasTokens, saveTokens } from '../services/jobberClient';
-import { MOCK_CLIENTS, MOCK_JOBS, MOCK_VISITS } from '../lib/mockJobberData';
+import { MOCK_CLIENTS, MOCK_VENDORS, MOCK_JOBS, MOCK_VISITS } from '../lib/mockJobberData';
 
 const router = Router();
 
@@ -191,6 +191,15 @@ router.get('/api/jobber/entity', async (req: Request, res: Response) => {
   } catch {
     res.status(500).json({ error: 'Failed to fetch entity' });
   }
+});
+
+router.get('/api/jobber/vendors', async (req: Request, res: Response) => {
+  if (!hasTokens()) {
+    res.json(MOCK_VENDORS);
+    return;
+  }
+  // Real Jobber doesn't have a vendors concept — return mock data regardless
+  res.json(MOCK_VENDORS);
 });
 
 router.post('/api/jobber/sync', async (req: Request, res: Response) => {

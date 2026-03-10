@@ -78,6 +78,14 @@ export interface JobberClient {
   };
 }
 
+export interface JobberVendor {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  specialty?: string;
+}
+
 export interface JobberProperty {
   id: string;
   street: string;
@@ -93,6 +101,7 @@ export interface JobberJob {
   jobStatus: string;
   client?: { id: string; name: string };
   property?: { id: string; street: string; city: string };
+  vendor?: { id: string; name: string };
 }
 
 export interface JobberVisit {
@@ -102,6 +111,7 @@ export interface JobberVisit {
   status: 'scheduled' | 'completed' | 'unscheduled';
   client: { id: string; name: string };
   property: { id: string; street: string; city: string };
+  vendor?: { id: string; name: string };
 }
 
 export interface GHLContact {

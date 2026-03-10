@@ -11,6 +11,7 @@ import {
   Trash2, Plus, Bot, StickyNote, Check, X,
   CheckCircle2, Clock, Bell, FileText,
 } from 'lucide-react';
+import { BulkMessageModal } from '@/components/BulkMessageModal';
 
 interface TaskListProps {
   ticketId: string;
@@ -196,6 +197,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
   const [entityId, setEntityId] = useState('');
   const [entityLabel, setEntityLabel] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [modalType, setModalType] = useState<'notify' | 'rfp' | null>(null);
   const queryClient = useQueryClient();
   const editable = ticketStatus !== 'closed';
 
@@ -219,17 +221,16 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
   });
 
   const bulk = useMutation({
-    mutationFn: (payload: { action: TaskBulkAction; status?: TaskStatus }) =>
+    mutationFn: (payload: { action: TaskBulkAction; status?: TaskStatus; message?: string }) =>
       api.post(`/api/tickets/${ticketId}/tasks/bulk`, {
         ids: [...selectedIds],
         ...payload,
       }).then((r) => r.data),
-    onSuccess: (_data, vars) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', ticketId] });
       void queryClient.invalidateQueries({ queryKey: ['notes', ticketId] });
       setSelectedIds(new Set());
-      if (vars.action === 'notify') alert('Notification sent for selected tasks.');
-      if (vars.action === 'rfp') alert('RFP sent for selected tasks.');
+      setModalType(null);
     },
   });
 
@@ -326,7 +327,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
             disabled={bulk.isPending}
-            onClick={() => bulk.mutate({ action: 'notify' })}
+            onClick={() => setModalType('notify')}
           >
             <Bell className="h-3 w-3 mr-1 text-amber-400" />
             Send Notification
@@ -335,7 +336,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
             disabled={bulk.isPending}
-            onClick={() => bulk.mutate({ action: 'rfp' })}
+            onClick={() => setModalType('rfp')}
           >
             <FileText className="h-3 w-3 mr-1 text-violet-400" />
             Send RFP
@@ -425,6 +426,18 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
             </Button>
           </div>
         </form>
+      )}
+
+      {/* ── Message modal ── */}
+      {modalType && (
+        <BulkMessageModal
+          type={modalType}
+          ticketId={ticketId}
+          selectedTasks={tasks.filter((t) => selectedIds.has(t._id))}
+          onClose={() => setModalType(null)}
+          onSend={(message) => bulk.mutate({ action: modalType, message })}
+          isSending={bulk.isPending}
+        />
       )}
     </div>
   );

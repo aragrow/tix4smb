@@ -10,6 +10,7 @@ import { StatusBadge, PriorityBadge } from '@/components/StatusBadge';
 import { NoteThread } from '@/components/NoteThread';
 import { TaskList } from '@/components/TaskList';
 import { ChevronLeft, Trash2, Pencil, Check, X, Bot, Loader2, CheckCircle } from 'lucide-react';
+import { JobberEntityPicker } from '@/components/JobberEntityPicker';
 
 // ─── Jobber entity display ───────────────────────────────────────────────────
 
@@ -119,6 +120,10 @@ export default function TicketDetail() {
   const queryClient = useQueryClient();
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
+  const [editingJobber, setEditingJobber] = useState(false);
+  const [jobberTypeDraft, setJobberTypeDraft] = useState<JobberEntityType | ''>('');
+  const [jobberIdDraft, setJobberIdDraft] = useState('');
+  const [jobberLabelDraft, setJobberLabelDraft] = useState('');
   const [agentState, setAgentState] = useState<'idle' | 'running' | 'done'>('idle');
   const agentNoteBaselineRef = useRef<number | null>(null);
 
@@ -275,23 +280,6 @@ export default function TicketDetail() {
           <div className="flex-1" />
 
           <Button
-            variant="outline"
-            size="sm"
-            onClick={() => runAgent.mutate()}
-            disabled={agentState === 'running'}
-            title="Re-run the AI agent to analyze this ticket and add notes"
-          >
-            {agentState === 'running' ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : agentState === 'done' ? (
-              <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
-            ) : (
-              <Bot className="h-4 w-4 mr-1" />
-            )}
-            {agentState === 'running' ? 'Running...' : agentState === 'done' ? 'Done!' : 'Run AI'}
-          </Button>
-
-          <Button
             variant="ghost"
             size="sm"
             className="text-destructive-foreground hover:bg-destructive/20"
@@ -325,17 +313,63 @@ export default function TicketDetail() {
           <p className="text-muted-foreground text-xs mb-1">Updated</p>
           <p>{new Date(ticket.updated_at).toLocaleString()}</p>
         </div>
-        {ticket.jobber_entity_type && (
-          <div>
-            <p className="text-muted-foreground text-xs mb-1">Jobber entity</p>
+        <div>
+          <div className="flex items-center gap-1 mb-1">
+            <p className="text-muted-foreground text-xs">Jobber entity</p>
+            {editable && !editingJobber && !ticket.jobber_entity_type && (
+              <Button
+                variant="ghost" size="icon" className="h-5 w-5"
+                onClick={() => {
+                  setJobberTypeDraft(ticket.jobber_entity_type ?? '');
+                  setJobberIdDraft(ticket.jobber_entity_id ?? '');
+                  setJobberLabelDraft(ticket.jobber_entity_label ?? '');
+                  setEditingJobber(true);
+                }}
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+          {editingJobber ? (
+            <div className="space-y-2">
+              <JobberEntityPicker
+                entityType={jobberTypeDraft}
+                entityId={jobberIdDraft}
+                onTypeChange={setJobberTypeDraft}
+                onIdChange={setJobberIdDraft}
+                onLabelChange={setJobberLabelDraft}
+              />
+              <div className="flex gap-1">
+                <Button
+                  size="sm" className="h-7 gap-1"
+                  disabled={!jobberTypeDraft || !jobberIdDraft || updateTicket.isPending}
+                  onClick={() => {
+                    updateTicket.mutate({
+                      jobber_entity_type: jobberTypeDraft as JobberEntityType,
+                      jobber_entity_id: jobberIdDraft,
+                      jobber_entity_label: jobberLabelDraft || undefined,
+                    });
+                    setEditingJobber(false);
+                  }}
+                >
+                  <Check className="h-3 w-3" /> Save
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7" onClick={() => setEditingJobber(false)}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ) : ticket.jobber_entity_type ? (
             <JobberEntityDisplay
               type={ticket.jobber_entity_type}
               id={ticket.jobber_entity_id ?? ''}
               label={ticket.jobber_entity_label}
               entityInfo={jobberEntityInfo}
             />
-          </div>
-        )}
+          ) : (
+            <p className="text-sm text-muted-foreground italic">None</p>
+          )}
+        </div>
         {ticket.ghl_entity_type && (
           <div>
             <p className="text-muted-foreground text-xs mb-1">GoHighLevel entity</p>
@@ -366,6 +400,23 @@ export default function TicketDetail() {
               <Pencil className="h-3 w-3" />
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs gap-1 text-muted-foreground"
+            onClick={() => runAgent.mutate()}
+            disabled={agentState === 'running'}
+            title="Re-run the AI agent to analyze this ticket and add notes"
+          >
+            {agentState === 'running' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : agentState === 'done' ? (
+              <CheckCircle className="h-3 w-3 text-green-500" />
+            ) : (
+              <Bot className="h-3 w-3" />
+            )}
+            {agentState === 'running' ? 'Running...' : agentState === 'done' ? 'Done!' : 'Run AI'}
+          </Button>
         </div>
 
         {editingDesc ? (
