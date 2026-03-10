@@ -1,0 +1,33 @@
+# Backend
+backend/.env.local
+backend/.jobber-tokens.json
+backend/ai-config.json
+backend/dist/
+backend/node_modules/
+
+# Root secrets
+.env.local
+
+# Frontend
+frontend/.env.local
+frontend/dist/
+frontend/node_modules/
+
+# Python / scraper
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Dev script
+.dev-pids
+.dev-logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp

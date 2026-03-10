@@ -1,0 +1,284 @@
+import { TicketTask } from '../models/TicketTask';
+import { Ticket } from '../models/Ticket';
+import { jobberGraphQL, hasTokens } from './jobberClient';
+import { runAgentLoop, type ToolDef } from './llmClient';
+import { loadAIConfig } from './aiConfig';
+import { env } from '../config/env';
+import { MOCK_CLIENTS, MOCK_JOBS, MOCK_VISITS } from '../lib/mockJobberData';
+
+// ─── System prompt ──────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT = `You are a ticket intelligence agent for TIX4SMB, a ticket management system for a cleaning services business that uses Jobber for field operations.
+
+When a new support ticket is created, your job is to:
+1. Analyze the ticket title and description to understand the situation
+2. Use the available tools to find relevant Jobber data (clients, jobs, visits)
+3. Submit clear, actionable tasks for each item that needs attention
+
+Common scenarios and how to handle them:
+- A vendor/employee/worker calls in sick or is unavailable → call get_all_jobs(status: "active") and get_upcoming_visits() to get everything scheduled, then create a task for each job/visit that needs reassignment. There is no vendor search tool — use the full job/visit lists and identify affected items from context.
+- A client cancels → call search_clients() to find the client, then get_client_jobs() and get_upcoming_visits(client_id) to flag their scheduled work.
+- An emergency at a location → call get_upcoming_visits() to find visits at that address and create tasks for each.
+- Equipment issue → call get_all_jobs() to find jobs that might be affected.
+
+IMPORTANT: There is no vendor/employee search tool. For any scenario involving a vendor, worker, or employee, always use get_all_jobs() and get_upcoming_visits() to retrieve the full schedule, then identify the affected items.
+
+Format each task description as:
+"Job #[ID]: [Title] at [Address], [City] for client [Name] — [Action needed]"
+
+Always call submit_tasks() when done. If no action items are found, submit an empty tasks array. Never submit tasks that are error messages, apologies, or explanations — only submit actionable job/visit information.`;
+
+// ─── Tool definitions ───────────────────────────────────────────────────────
+
+const TOOLS: ToolDef[] = [
+  {
+    name: 'search_clients',
+    description: 'Search Jobber clients by name. Returns a list of matching clients with their IDs.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Client name or partial name to search for' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'get_client_jobs',
+    description: 'Get all active jobs for a specific Jobber client by their ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'The Jobber client ID' },
+      },
+      required: ['client_id'],
+    },
+  },
+  {
+    name: 'get_all_jobs',
+    description: 'Get all Jobber jobs, optionally filtered by status (active, completed).',
+    parameters: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'Filter by job status: active or completed. Omit for all.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_upcoming_visits',
+    description: 'Get scheduled visits coming up in the next N days.',
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Number of days ahead to look (default: 7)' },
+        client_id: { type: 'string', description: 'Optional: filter visits by client ID' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'submit_tasks',
+    description: 'Submit the final actionable tasks to be added to the ticket. Call this when done with research.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { description: { type: 'string' } },
+            required: ['description'],
+          },
+          description: 'Array of tasks to add to the ticket.',
+        },
+      },
+      required: ['tasks'],
+    },
+  },
+];
+
+// ─── Jobber data fetchers ───────────────────────────────────────────────────
+
+const useMock = () => !hasTokens();
+
+async function searchClients(name: string) {
+  if (useMock()) {
+    const q = name.toLowerCase();
+    return MOCK_CLIENTS.filter((c) => c.name.toLowerCase().includes(q));
+  }
+  const data = await jobberGraphQL<{
+    clients: { nodes: Array<{ id: string; name: string }> };
+  }>(`query SearchClients($search: String) {
+      clients(filter: { searchTerm: $search }) {
+        nodes { id name }
+      }
+    }`, { search: name });
+  return data.clients.nodes;
+}
+
+async function getClientJobs(clientId: string) {
+  if (useMock()) {
+    return MOCK_JOBS.filter((j) => j.client.id === clientId);
+  }
+  const data = await jobberGraphQL<{
+    jobs: { nodes: Array<{ id: string; title: string; jobStatus: string; property?: { address?: { street: string; city: string } } }> };
+  }>(`query GetClientJobs($clientId: EncodedId) {
+      jobs(filter: { clientId: $clientId }) {
+        nodes { id title jobStatus property { address { street city } } }
+      }
+    }`, { clientId });
+  return data.jobs.nodes;
+}
+
+async function getAllJobs(status?: string) {
+  if (useMock()) {
+    return status ? MOCK_JOBS.filter((j) => j.status === status) : MOCK_JOBS;
+  }
+  const data = await jobberGraphQL<{
+    jobs: { nodes: Array<{ id: string; title: string; jobStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
+  }>(`query GetAllJobs {
+      jobs { nodes { id title jobStatus client { id name } property { address { street city } } } }
+    }`);
+  return status
+    ? data.jobs.nodes.filter((j) => j.jobStatus.toLowerCase() === status.toLowerCase())
+    : data.jobs.nodes;
+}
+
+async function getUpcomingVisits(days = 7, clientId?: string) {
+  if (useMock()) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + days);
+    const today = new Date().toISOString().slice(0, 10);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    return MOCK_VISITS.filter((v) => {
+      const inRange = v.scheduledStart >= today && v.scheduledStart <= cutoffStr;
+      const matchClient = clientId ? v.client.id === clientId : true;
+      return inRange && matchClient;
+    });
+  }
+  const from = new Date().toISOString();
+  const to = new Date(Date.now() + days * 86400000).toISOString();
+  const data = await jobberGraphQL<{
+    visits: { nodes: Array<{ id: string; title: string; startAt: string; status: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
+  }>(`query GetVisits($from: ISO8601DateTime, $to: ISO8601DateTime) {
+      visits(filter: { startAt: { gte: $from, lte: $to } }) {
+        nodes { id title startAt status client { id name } property { address { street city } } }
+      }
+    }`, { from, to });
+  const nodes = data.visits.nodes;
+  return clientId ? nodes.filter((v) => v.client?.id === clientId) : nodes;
+}
+
+// ─── Tool executor ──────────────────────────────────────────────────────────
+
+async function executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+  try {
+    switch (name) {
+      case 'search_clients':
+        return await searchClients(input.name as string);
+      case 'get_client_jobs':
+        return await getClientJobs(input.client_id as string);
+      case 'get_all_jobs':
+        return await getAllJobs(input.status as string | undefined);
+      case 'get_upcoming_visits':
+        return await getUpcomingVisits(
+          (input.days as number | undefined) ?? 7,
+          input.client_id as string | undefined
+        );
+      default:
+        return { result: 'Unknown tool — skipped.' };
+    }
+  } catch (err) {
+    // Return a neutral message so the LLM does not echo raw errors into notes
+    console.error(`[Agent tool error] ${name}:`, err);
+    return { result: 'Data temporarily unavailable. Continue with available data.' };
+  }
+}
+
+// ─── Public entry ───────────────────────────────────────────────────────────
+
+export async function runTicketAgent(ticketId: string): Promise<void> {
+  try {
+    const ticket = await Ticket.findById(ticketId).lean();
+    if (!ticket) return;
+
+    const config = loadAIConfig();
+
+    // Resolve API key for the selected provider
+    const apiKey = (() => {
+      if (config.provider === 'anthropic') return env.ANTHROPIC_API_KEY;
+      if (config.provider === 'openai')    return env.OPENAI_API_KEY;
+      if (config.provider === 'google')    return env.GOOGLE_API_KEY;
+    })();
+
+    if (!apiKey) {
+      console.warn(`[Agent] No API key for provider "${config.provider}" — skipping agent.`);
+      return;
+    }
+
+    const userMessage = [
+      `New ticket created:`,
+      `Title: ${ticket.title}`,
+      ticket.description ? `Description: ${ticket.description}` : '',
+      ticket.tags?.length ? `Tags: ${ticket.tags.join(', ')}` : '',
+      ticket.jobber_entity_type
+        ? `Linked Jobber entity: ${ticket.jobber_entity_type} ID ${ticket.jobber_entity_id ?? 'unknown'}`
+        : '',
+    ].filter(Boolean).join('\n');
+
+    const ERROR_STARTS = ['error', 'sorry', 'i apologize', 'i was unable', 'unable to', 'i encountered', 'i could not', 'could not', 'no action'];
+    const ERROR_CONTAINS = ['is not supported', 'permission denied', 'api error', 'not available'];
+    let totalTasksCreated = 0;
+
+    try {
+      await runAgentLoop({
+        provider: config.provider,
+        model: config.model,
+        apiKey,
+        system: SYSTEM_PROMPT,
+        userMessage,
+        tools: TOOLS,
+        executeTool,
+        onTasks: async (tasks) => {
+          const validTasks = tasks.filter((t) => {
+            const desc = t.description.trim();
+            if (desc.length < 20) return false;
+            const lower = desc.toLowerCase();
+            if (ERROR_STARTS.some((prefix) => lower.startsWith(prefix))) return false;
+            if (ERROR_CONTAINS.some((phrase) => lower.includes(phrase))) return false;
+            return true;
+          });
+          if (validTasks.length === 0) return;
+
+          // Deduplicate against existing tasks for this ticket
+          const existing = await TicketTask.find({ ticket_ref: ticketId }).select('description').lean();
+          const existingDescs = new Set(existing.map((t) => t.description.trim().toLowerCase()));
+          const newTasks = validTasks.filter((t) => !existingDescs.has(t.description.trim().toLowerCase()));
+
+          if (newTasks.length === 0) {
+            console.log(`[Agent] All ${validTasks.length} task(s) already exist — skipping`);
+            return;
+          }
+
+          await TicketTask.insertMany(
+            newTasks.map((t) => ({
+              ticket_ref: ticketId,
+              description: t.description,
+              agent_generated: true,
+            }))
+          );
+          totalTasksCreated += newTasks.length;
+          const skipped = validTasks.length - newTasks.length;
+          console.log(`[Agent] Created ${newTasks.length} task(s) for ticket ${ticketId}${skipped ? `, skipped ${skipped} duplicate(s)` : ''}`);
+        },
+      });
+    } catch (err) {
+      console.error('[Agent] LLM error:', err);
+      return;
+    }
+
+    console.log(`[Agent] Done. Total tasks created: ${totalTasksCreated} for ticket ${ticketId}`);
+  } catch (err) {
+    console.error('[Agent] Error:', err);
+  }
+}

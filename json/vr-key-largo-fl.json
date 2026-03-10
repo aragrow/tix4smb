@@ -1,0 +1,40 @@
+[
+  {
+    "service": "vr",
+    "location": "key largo fl",
+    "vendors": [
+      {
+        "name": "Maid In Paradise | Cleaning Service In Key Largo FL",
+        "phone": "(305) 504-3939"
+      },
+      {
+        "name": "Florida Keys Cleaning",
+        "phone": "(305) 304-8768"
+      },
+      {
+        "name": "Eco Cleaning Services Of The Keys",
+        "phone": "(305) 699-8853"
+      },
+      {
+        "name": "Maribel's Keys Cleaning Service",
+        "phone": "(305) 393-0418"
+      },
+      {
+        "name": "Jill Of All Trades Cleaning Inc",
+        "phone": "(305) 204-7598"
+      },
+      {
+        "name": "Key's House Cleaning Services",
+        "phone": "(786) 473-2701"
+      },
+      {
+        "name": "Shoreside Cleaning LLC",
+        "phone": "(305) 699-5727"
+      },
+      {
+        "name": "Keys Best Cleaning Service",
+        "phone": "(305) 216-8729"
+      }
+    ]
+  }
+]

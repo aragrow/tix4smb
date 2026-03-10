@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Sangria — Spanish flag inspired ─────────────────────────
+       Primary:   #E8B931  bright gold   (buttons, CTAs, ring)
+       Accent:    #7B1818  deep wine     (sidebar active, accents)
+       Destroy:   #D4380D  orange-red    (errors, destructive)
+       Content:   white background with dark text
+       Sidebar:   dark wine
+    ─────────────────────────────────────────────────────────── */
+
+    /* Content area — white / light */
+    --background: 0 0% 100%;            /* white                   */
+    --foreground: 20 14% 10%;           /* warm near-black text    */
+
+    --card: 0 0% 100%;                  /* white cards             */
+    --card-foreground: 20 14% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14% 10%;
+
+    --primary: 44 80% 55%;              /* #E8B931 gold            */
+    --primary-foreground: 20 14% 10%;   /* dark text on gold       */
+
+    --secondary: 10 12% 94%;            /* very light warm grey    */
+    --secondary-foreground: 20 14% 10%;
+
+    --muted: 10 10% 95%;                /* light warm muted bg     */
+    --muted-foreground: 10 8% 45%;      /* medium warm grey        */
+
+    --accent: 0 67% 29%;                /* #7B1818 wine red        */
+    --accent-foreground: 0 0% 100%;     /* white text on wine      */
+
+    --destructive: 13 88% 44%;          /* #D4380D orange-red      */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 10 10% 88%;               /* light warm border       */
+    --input: 10 10% 88%;
+    --ring: 44 80% 55%;                 /* gold focus ring         */
+
+    --radius: 0.5rem;
+
+    /* Sidebar — medium warm rose (83% - 25 → 58%) */
+    --sidebar: 10 20% 58%;
+    --sidebar-foreground: 20 14% 10%;
+    --sidebar-border: 10 15% 47%;
+
+    /* ── Status / semantic ──────────────────────────────────── */
+    --success: 128 45% 36%;             /* green — darker for light bg */
+    --success-foreground: 0 0% 100%;
+    --warning: 44 80% 42%;              /* deeper gold for light bg    */
+    --warning-foreground: 20 14% 10%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}

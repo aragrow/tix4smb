@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ticket App Architecture Planner</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+.app { display: flex; flex: 1; overflow: hidden; }
+
+.sidebar { width: 270px; background: #161b22; border-right: 1px solid #30363d; overflow-y: auto; padding: 12px 14px; flex-shrink: 0; }
+.sidebar h2 { font-size: 10px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; margin-top: 14px; padding-bottom: 4px; border-bottom: 1px solid #21262d; }
+.sidebar h2:first-child { margin-top: 0; }
+
+.control-group { margin-bottom: 7px; }
+.control-label { font-size: 11px; color: #8b949e; margin-bottom: 3px; display: block; }
+select { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 11px; padding: 5px 7px; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b949e'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 24px; }
+select:focus { outline: none; border-color: #388bfd; }
+
+.toggle-group { display: flex; padding: 2px; gap: 2px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
+.toggle-btn { flex: 1; padding: 4px; text-align: center; border-radius: 4px; cursor: pointer; border: none; background: transparent; color: #8b949e; font-size: 11px; transition: all 0.15s; }
+.toggle-btn.active { background: #388bfd; color: #fff; font-weight: 500; }
+
+.checkbox-group { display: flex; flex-direction: column; gap: 3px; }
+.checkbox-item { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 0; }
+.checkbox-item input { accent-color: #388bfd; width: 12px; height: 12px; }
+.checkbox-item span { font-size: 11px; color: #c9d1d9; }
+
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+.diagram-area { flex: 1; position: relative; overflow: hidden; }
+#arch-svg { width: 100%; height: 100%; display: block; }
+
+.prompt-area { border-top: 1px solid #30363d; padding: 10px 14px; background: #161b22; height: 210px; display: flex; flex-direction: column; }
+.prompt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.prompt-header span { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+.copy-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; padding: 4px 12px; font-size: 11px; cursor: pointer; transition: all 0.15s; }
+.copy-btn:hover { background: #30363d; }
+.copy-btn.copied { background: #238636; border-color: #238636; color: #fff; }
+#prompt-text { flex: 1; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 10.5px; line-height: 1.65; color: #c9d1d9; white-space: pre-wrap; }
+
+.header { background: #161b22; border-bottom: 1px solid #30363d; padding: 9px 14px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.header h1 { font-size: 13px; font-weight: 600; color: #e6edf3; }
+.header .badge { font-size: 10px; background: #388bfd18; color: #388bfd; border: 1px solid #388bfd33; border-radius: 10px; padding: 1px 8px; }
+
+.presets { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+.presets-label { font-size: 10px; color: #484f58; margin-right: 2px; }
+.preset-btn { background: #21262d; border: 1px solid #30363d; color: #8b949e; border-radius: 6px; padding: 3px 10px; font-size: 10px; cursor: pointer; transition: all 0.15s; }
+.preset-btn:hover { color: #e6edf3; border-color: #58a6ff; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎫 Ticket App Planner</h1>
+  <span class="badge">tix4smb</span>
+  <div class="presets">
+    <span class="presets-label">Presets:</span>
+    <button class="preset-btn" onclick="applyPreset('minimal')">Minimal</button>
+    <button class="preset-btn" onclick="applyPreset('standard')">Standard</button>
+    <button class="preset-btn" onclick="applyPreset('fullstack')">Full Stack</button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="sidebar">
+
+    <h2>Backend</h2>
+    <div class="control-group">
+      <label class="control-label">Framework</label>
+      <select id="backend-framework" onchange="update()">
+        <option value="express">Express.js</option>
+        <option value="fastify">Fastify</option>
+        <option value="nestjs">NestJS</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label">API Style</label>
+      <div class="toggle-group">
+        <button class="toggle-btn active" id="toggle-rest" onclick="setApiStyle('rest')">REST</button>
+        <button class="toggle-btn" id="toggle-graphql" onclick="setApiStyle('graphql')">GraphQL</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label class="control-label">Runtime</label>
+      <select id="backend-runtime" onchange="update()">
+        <option value="node">Node.js</option>
+        <option value="bun">Bun</option>
+      </select>
+    </div>
+
+    <h2>Authentication</h2>
+    <div class="control-group">
+      <label class="control-label">Auth Library</label>
+      <select id="auth-lib" onchange="update()">
+        <option value="passport">Passport.js + Google Strategy</option>
+        <option value="better-auth">Better Auth</option>
+        <option value="firebase">Firebase Auth</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label">Token / Session</label>
+      <select id="session-storage" onchange="update()">
+        <option value="jwt">JWT (stateless)</option>
+        <option value="redis">Redis sessions</option>
+        <option value="mongo">MongoDB sessions</option>
+      </select>
+    </div>
+
+    <h2>Jobber Integration</h2>
+    <div class="control-group">
+      <label class="control-label">Sync Strategy</label>
+      <select id="jobber-strategy" onchange="update()">
+        <option value="webhook">OAuth + Webhooks (real-time)</option>
+        <option value="polling">OAuth + Polling</option>
+        <option value="manual">Manual Refresh</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label">Entities to Sync</label>
+      <div class="checkbox-group">
+        <label class="checkbox-item"><input type="checkbox" id="sync-clients" checked onchange="update()"><span>Clients</span></label>
+        <label class="checkbox-item"><input type="checkbox" id="sync-properties" checked onchange="update()"><span>Properties</span></label>
+        <label class="checkbox-item"><input type="checkbox" id="sync-jobs" checked onchange="update()"><span>Jobs</span></label>
+        <label class="checkbox-item"><input type="checkbox" id="sync-visits" onchange="update()"><span>Visits</span></label>
+        <label class="checkbox-item"><input type="checkbox" id="sync-vendors" onchange="update()"><span>Vendors</span></label>
+      </div>
+    </div>
+
+    <h2>Frontend</h2>
+    <div class="control-group">
+      <label class="control-label">Data Fetching</label>
+      <select id="state-mgmt" onchange="update()">
+        <option value="react-query">TanStack Query (React Query)</option>
+        <option value="redux">Redux Toolkit + RTK Query</option>
+        <option value="zustand">Zustand + Axios</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label">UI Library</label>
+      <select id="ui-lib" onchange="update()">
+        <option value="shadcn">shadcn/ui + Tailwind CSS</option>
+        <option value="mui">Material UI (MUI)</option>
+        <option value="antd">Ant Design</option>
+        <option value="chakra">Chakra UI</option>
+      </select>
+    </div>
+
+    <h2>Deployment</h2>
+    <div class="control-group">
+      <label class="control-label">Platform</label>
+      <select id="deployment" onchange="update()">
+        <option value="railway">Railway (API) + Vercel (React)</option>
+        <option value="render">Render (full stack)</option>
+        <option value="heroku">Heroku</option>
+        <option value="aws">AWS (EC2 + S3 + CloudFront)</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label">MongoDB Hosting</label>
+      <select id="mongo-hosting" onchange="update()">
+        <option value="atlas-paid">MongoDB Atlas — M10+ (recommended)</option>
+        <option value="atlas">MongoDB Atlas — Free (M0, dev only)</option>
+        <option value="self">Self-hosted</option>
+      </select>
+    </div>
+
+  </div>
+
+  <div class="main">
+    <div class="diagram-area">
+      <svg id="arch-svg"></svg>
+    </div>
+    <div class="prompt-area">
+      <div class="prompt-header">
+        <span>📋 Generated Plan Prompt</span>
+        <button class="copy-btn" id="copy-btn" onclick="copyPrompt()">Copy Prompt</button>
+      </div>
+      <div id="prompt-text"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────
+const state = {
+  backendFramework: 'express',
+  backendRuntime: 'node',
+  apiStyle: 'rest',
+  authLib: 'passport',
+  sessionStorage: 'jwt',
+  jobberStrategy: 'webhook',
+  syncClients: true,
+  syncProperties: true,
+  syncJobs: true,
+  syncVisits: false,
+  syncVendors: false,
+  stateMgmt: 'react-query',
+  uiLib: 'shadcn',
+  deployment: 'railway',
+  mongoHosting: 'atlas-paid',
+};
+
+function setApiStyle(style) {
+  state.apiStyle = style;
+  document.getElementById('toggle-rest').classList.toggle('active', style === 'rest');
+  document.getElementById('toggle-graphql').classList.toggle('active', style === 'graphql');
+  update();
+}
+
+function readState() {
+  state.backendFramework = document.getElementById('backend-framework').value;
+  state.backendRuntime   = document.getElementById('backend-runtime').value;
+  state.authLib          = document.getElementById('auth-lib').value;
+  state.sessionStorage   = document.getElementById('session-storage').value;
+  state.jobberStrategy   = document.getElementById('jobber-strategy').value;
+  state.syncClients      = document.getElementById('sync-clients').checked;
+  state.syncProperties   = document.getElementById('sync-properties').checked;
+  state.syncJobs         = document.getElementById('sync-jobs').checked;
+  state.syncVisits       = document.getElementById('sync-visits').checked;
+  state.syncVendors      = document.getElementById('sync-vendors').checked;
+  state.stateMgmt        = document.getElementById('state-mgmt').value;
+  state.uiLib            = document.getElementById('ui-lib').value;
+  state.deployment       = document.getElementById('deployment').value;
+  state.mongoHosting     = document.getElementById('mongo-hosting').value;
+}
+
+function syncDOMToState() {
+  document.getElementById('backend-framework').value = state.backendFramework;
+  document.getElementById('backend-runtime').value   = state.backendRuntime;
+  document.getElementById('auth-lib').value          = state.authLib;
+  document.getElementById('session-storage').value   = state.sessionStorage;
+  document.getElementById('jobber-strategy').value   = state.jobberStrategy;
+  document.getElementById('sync-clients').checked    = state.syncClients;
+  document.getElementById('sync-properties').checked = state.syncProperties;
+  document.getElementById('sync-jobs').checked       = state.syncJobs;
+  document.getElementById('sync-visits').checked     = state.syncVisits;
+  document.getElementById('sync-vendors').checked    = state.syncVendors;
+  document.getElementById('state-mgmt').value        = state.stateMgmt;
+  document.getElementById('ui-lib').value            = state.uiLib;
+  document.getElementById('deployment').value        = state.deployment;
+  document.getElementById('mongo-hosting').value     = state.mongoHosting;
+  document.getElementById('toggle-rest').classList.toggle('active', state.apiStyle === 'rest');
+  document.getElementById('toggle-graphql').classList.toggle('active', state.apiStyle === 'graphql');
+}
+
+function applyPreset(name) {
+  const presets = {
+    minimal: {
+      backendFramework:'express', backendRuntime:'node', apiStyle:'rest',
+      authLib:'passport', sessionStorage:'jwt', jobberStrategy:'manual',
+      syncClients:true,  syncProperties:false, syncJobs:true,  syncVisits:false, syncVendors:false,
+      stateMgmt:'react-query', uiLib:'shadcn', deployment:'railway', mongoHosting:'atlas-paid'
+    },
+    standard: {
+      backendFramework:'express', backendRuntime:'node', apiStyle:'rest',
+      authLib:'passport', sessionStorage:'jwt', jobberStrategy:'polling',
+      syncClients:true,  syncProperties:true,  syncJobs:true,  syncVisits:false, syncVendors:false,
+      stateMgmt:'react-query', uiLib:'shadcn', deployment:'railway', mongoHosting:'atlas-paid'
+    },
+    fullstack: {
+      backendFramework:'nestjs', backendRuntime:'node', apiStyle:'graphql',
+      authLib:'passport', sessionStorage:'jwt', jobberStrategy:'webhook',
+      syncClients:true,  syncProperties:true,  syncJobs:true,  syncVisits:true,  syncVendors:true,
+      stateMgmt:'redux', uiLib:'antd', deployment:'aws', mongoHosting:'atlas-paid'
+    }
+  };
+  Object.assign(state, presets[name]);
+  syncDOMToState();
+  update();
+}
+
+// ─── SVG DIAGRAM ─────────────────────────────────────────────────
+function renderDiagram() {
+  const svg = document.getElementById('arch-svg');
+  const W = svg.clientWidth || 700;
+  const H = svg.clientHeight || 340;
+  const cx = W / 2, cy = H / 2;
+  const BW = 148, BH = 58;
+
+  const labels = {
+    fw:      { express:'Express.js API', fastify:'Fastify API', nestjs:'NestJS API' }[state.backendFramework],
+    auth:    { passport:'Passport.js', 'better-auth':'Better Auth', firebase:'Firebase Auth' }[state.authLib],
+    jobberA: { webhook:'OAuth + Webhooks', polling:'OAuth + Polling', manual:'REST (manual)' }[state.jobberStrategy],
+    api:     state.apiStyle === 'graphql' ? 'GraphQL (Apollo)' : 'REST API',
+    mongo:   { atlas:'Atlas Free (M0)', 'atlas-paid':'Atlas M10+', self:'Self-hosted' }[state.mongoHosting],
+    ui:      { shadcn:'shadcn/ui + Tailwind', mui:'Material UI', antd:'Ant Design', chakra:'Chakra UI' }[state.uiLib],
+  };
+
+  // Node positions
+  const nodes = {
+    react:  { x: cx-210, y: cy-90,  color:'#388bfd', label:'React Admin',   sub: labels.ui,      icon:'⚛️' },
+    api:    { x: cx,      y: cy,      color:'#a371f7', label: labels.fw,       sub: labels.api,     icon:'🖥️' },
+    mongo:  { x: cx+210, y: cy-90,  color:'#3fb950', label:'MongoDB',        sub: labels.mongo,   icon:'🍃' },
+    auth:   { x: cx-210, y: cy+90,  color:'#e3b341', label: labels.auth,     sub:'Google OAuth 2.0', icon:'🔐' },
+    jobber: { x: cx+210, y: cy+90,  color:'#f78166', label:'Jobber API',     sub: labels.jobberA, icon:'🔧' },
+  };
+
+  const edges = [
+    { a:'react',  b:'api',    label: state.apiStyle==='graphql'?'GraphQL':'REST/HTTPS', dash:false, color:'#388bfd' },
+    { a:'api',    b:'mongo',  label:'Mongoose ODM',  dash:false, color:'#3fb950' },
+    { a:'react',  b:'auth',   label:'OAuth redirect', dash:true,  color:'#e3b341' },
+    { a:'api',    b:'auth',   label:'verify token',   dash:true,  color:'#e3b341' },
+    { a:'api',    b:'jobber', label: labels.jobberA,  dash: state.jobberStrategy==='webhook', color:'#f78166' },
+  ];
+
+  let s = `
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0,8 3,0 6" fill="#484f58"/>
+      </marker>
+    </defs>
+    <rect width="${W}" height="${H}" fill="#0d1117"/>
+    <text x="12" y="18" fill="#30363d" font-size="10" font-family="monospace">architecture diagram</text>
+  `;
+
+  // Edges
+  for (const e of edges) {
+    const a = nodes[e.a], b = nodes[e.b];
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    const dash = e.dash ? 'stroke-dasharray="5,3"' : '';
+    s += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="#30363d" stroke-width="1.5" ${dash} marker-end="url(#arr)"/>`;
+    s += `<rect x="${mx-46}" y="${my-8}" width="92" height="15" rx="3" fill="#0d1117" opacity="0.92"/>`;
+    s += `<text x="${mx}" y="${my+3.5}" text-anchor="middle" fill="#6e7681" font-size="8.5" font-family="SF Mono,monospace">${e.label}</text>`;
+  }
+
+  // Nodes
+  for (const [id, n] of Object.entries(nodes)) {
+    const x = n.x-BW/2, y = n.y-BH/2;
+    s += `<rect x="${x}" y="${y}" width="${BW}" height="${BH}" rx="8" fill="${n.color}14" stroke="${n.color}55" stroke-width="1.5"/>`;
+    s += `<text x="${n.x}" y="${n.y-8}" text-anchor="middle" fill="${n.color}" font-size="11" font-weight="600" font-family="-apple-system,sans-serif">${n.icon} ${n.label}</text>`;
+    s += `<text x="${n.x}" y="${n.y+9}" text-anchor="middle" fill="#8b949e" font-size="9" font-family="-apple-system,sans-serif">${n.sub}</text>`;
+  }
+
+  // Footer info
+  const synced = ['clients','properties','jobs','visits','vendors'].filter(e => state['sync'+e.charAt(0).toUpperCase()+e.slice(1)]);
+  const session = {jwt:'JWT httpOnly cookie',redis:'Redis sessions',mongo:'MongoDB sessions'}[state.sessionStorage];
+  const deploy  = {railway:'Railway + Vercel', render:'Render', heroku:'Heroku', aws:'AWS EC2 + S3'}[state.deployment];
+
+  s += `<text x="${cx}" y="${H-30}" text-anchor="middle" fill="#30363d" font-size="9.5" font-family="-apple-system,sans-serif">Session: ${session}  ·  Deploy: ${deploy}  ·  Runtime: ${state.backendRuntime==='bun'?'Bun':'Node.js'}</text>`;
+  if (synced.length)
+    s += `<text x="${cx}" y="${H-14}" text-anchor="middle" fill="#30363d" font-size="9.5" font-family="-apple-system,sans-serif">Jobber sync: ${synced.join(', ')}</text>`;
+
+  svg.innerHTML = s;
+}
+
+// ─── PROMPT ───────────────────────────────────────────────────────
+function updatePrompt() {
+  const fw      = {express:'Express.js', fastify:'Fastify', nestjs:'NestJS'}[state.backendFramework];
+  const rt      = state.backendRuntime === 'bun' ? 'Bun' : 'Node.js';
+  const auth    = {passport:'Passport.js with the Google OAuth 2.0 strategy','better-auth':'Better Auth with Google provider',firebase:'Firebase Auth with Google sign-in'}[state.authLib];
+  const session = {jwt:'JWT access token in httpOnly Secure SameSite=Strict cookie (NOT localStorage)',redis:'Redis-backed server sessions',mongo:'MongoDB-backed server sessions'}[state.sessionStorage];
+  const jsync   = {webhook:'real-time Jobber webhooks (subscribe to entity create/update/delete events)',polling:'scheduled polling of the Jobber GraphQL API every N minutes via a cron job',manual:'on-demand manual refresh triggered by an admin action in the UI'}[state.jobberStrategy];
+  const state_  = {'react-query':'TanStack Query (React Query) for server state',redux:'Redux Toolkit with RTK Query for global and server state',zustand:'Zustand for client state with Axios for API calls'}[state.stateMgmt];
+  const ui      = {shadcn:'shadcn/ui components with Tailwind CSS',mui:'Material UI (MUI v5)',antd:'Ant Design',chakra:'Chakra UI'}[state.uiLib];
+  const dep     = {railway:'Railway (API server) + Vercel (React build)',render:'Render (full-stack, both services)',heroku:'Heroku',aws:'AWS EC2 (API) + S3 + CloudFront (React)'}[state.deployment];
+  const mongo   = {'atlas':'MongoDB Atlas M0 (dev/testing only — not for production)','atlas-paid':'MongoDB Atlas M10+ dedicated cluster',self:'a self-hosted MongoDB instance'}[state.mongoHosting];
+
+  const synced = ['clients','properties','jobs','visits','vendors'].filter(e => state['sync'+e.charAt(0).toUpperCase()+e.slice(1)]);
+  const apiStyle = state.apiStyle === 'graphql' ? 'GraphQL (Apollo Server)' : 'REST';
+
+  const models = [];
+  if (synced.includes('clients'))    models.push('JobberClient { _id, jobber_id, name, email, phone, synced_at }');
+  if (synced.includes('properties')) models.push('JobberProperty { _id, jobber_id, address, city, state, zip, client_ref, synced_at }');
+  if (synced.includes('jobs'))       models.push('JobberJob { _id, jobber_id, title, status, client_ref, property_ref, scheduled_at, synced_at }');
+  if (synced.includes('visits'))     models.push('JobberVisit { _id, jobber_id, job_ref, scheduled_start, scheduled_end, status, synced_at }');
+  if (synced.includes('vendors'))    models.push('JobberVendor { _id, jobber_id, name, email, phone, synced_at }');
+
+  const prompt =
+`Build a full-stack ticket tracking application called tix4smb with the following specification:
+
+━━ OVERVIEW ━━
+A ticket management system for a cleaning services business. Users authenticate
+with Google (sign-up = access, no role system). Tickets can be linked to Jobber
+entities (${synced.length ? synced.join(', ') : 'jobs'}) pulled via the Jobber API.
+
+━━ TECH STACK ━━
+  Runtime:      ${rt}
+  Backend:      ${fw} — ${apiStyle}
+  Database:     MongoDB via Mongoose ODM, hosted on ${mongo}
+  Auth:         ${auth}
+  Session:      ${session}
+  Frontend:     React + TypeScript + Vite
+  UI:           ${ui}
+  Data layer:   ${state_}
+  Deploy:       ${dep}
+
+━━ GOOGLE OAUTH FLOW ━━
+  1. User clicks "Sign in with Google" on the React app
+  2. ${auth} handles the OAuth 2.0 redirect + callback
+  3. On callback: upsert a User doc in MongoDB (google_id, email, name, avatar)
+  4. Issue a short-lived JWT access token (15 min) set as httpOnly Secure
+     SameSite=Strict cookie. Issue a long-lived refresh token (7 days) set in a
+     separate httpOnly Secure cookie. NEVER expose tokens in response body or JS.
+  5. POST /auth/refresh rotates the refresh token and returns a new access token.
+  6. All API routes require a valid access token cookie; reject 401 otherwise.
+
+━━ SECURITY MIDDLEWARE ━━
+  - helmet()                  HTTP security headers (CSP, HSTS, X-Frame-Options)
+  - cors({ origin: process.env.FRONTEND_URL, credentials: true })
+  - express-rate-limit        100 req/15 min on all routes; 10 req/15 min on /auth/*
+  - Zod schemas               Validate all request bodies before they touch the DB
+  - cookie-parser + csrf      CSRF protection on state-mutating endpoints
+
+━━ JOBBER INTEGRATION ━━
+  Auth:     Jobber OAuth 2.0 — store access_token and refresh_token in
+            .jobber-tokens.json (single-tenant; auto-refresh on 401 from Jobber)
+  Sync:     ${jsync}
+  Entities: ${synced.length ? synced.join(', ') : 'none selected — add in config'}
+  Storage:  Synced Jobber data stored as shadow documents in MongoDB with
+            a jobber_id field for reference. Tickets link to these via
+            jobber_entity_type + jobber_entity_id fields.
+${state.jobberStrategy === 'webhook' ? `  Webhooks: Verify every incoming webhook with HMAC-SHA256:
+            const sig = req.headers['x-jobber-hmac-sha256'];
+            const expected = crypto.createHmac('sha256', process.env.JOBBER_WEBHOOK_SECRET)
+              .update(JSON.stringify(req.body)).digest('base64');
+            if (!timingSafeEqual(sig, expected)) return res.status(401).end();` : ''}
+
+━━ MONGODB DATA MODELS ━━
+
+  User {
+    _id, google_id (indexed unique), email, name, avatar_url,
+    created_at, last_login_at
+  }
+
+  Ticket {
+    _id, title, description,
+    status: enum[open, in_progress, resolved, closed],  (indexed)
+    priority: enum[low, medium, high, urgent],           (indexed)
+    created_by: ref(User),
+    assigned_to: ref(User) [optional],
+    jobber_entity_type: enum[client, job, visit, property, vendor] [optional],
+    jobber_entity_id: String [optional],                 (indexed)
+    tags: [String],
+    created_at, updated_at
+  }
+
+  Note {
+    _id,
+    ticket_ref: ref(Ticket),  (indexed)
+    body: String,
+    author: ref(User),
+    created_at
+  }
+${models.map(m => '\n  ' + m).join('')}
+
+━━ MONGODB INDEXES ━━
+  User:    google_id (unique), email (unique)
+  Ticket:  status, priority, jobber_entity_id, created_at (desc)
+  Note:    ticket_ref (for fast note lookups per ticket)
+  Jobber shadow docs: jobber_id (unique per collection)
+
+━━ REACT ADMIN VIEWS ━━
+  /                → Dashboard: ticket counts by status + priority, recent activity
+  /tickets         → List: filter by status, priority, assignee, Jobber entity; sort; paginate
+  /tickets/:id     → Detail: full ticket, notes thread (from Note collection), status transitions
+  /tickets/new     → Create form: title, description, priority, Jobber entity picker
+  /settings        → Jobber OAuth connect/disconnect, sync status, manual sync trigger
+
+━━ API ENDPOINTS (${apiStyle}) ━━
+${state.apiStyle === 'graphql' ? `  Query:    tickets, ticket(id), me, ticketNotes(ticketId), jobberClients, jobberJobs
+  Mutation: createTicket, updateTicket, addNote, deleteTicket
+  Subscription: ticketUpdated (optional, for real-time)` :
+`  GET    /api/me
+  GET    /api/tickets            (filters: status, priority, page)
+  POST   /api/tickets
+  GET    /api/tickets/:id
+  PATCH  /api/tickets/:id
+  DELETE /api/tickets/:id
+  GET    /api/tickets/:id/notes
+  POST   /api/tickets/:id/notes
+  GET    /api/jobber/clients
+  GET    /api/jobber/jobs
+  POST   /api/jobber/sync        (manual trigger)
+  POST   /api/webhooks/jobber    (webhook receiver — HMAC verified)
+  GET    /auth/google            (OAuth start)
+  GET    /auth/google/callback
+  POST   /auth/refresh           (rotate refresh token → new access token)
+  POST   /auth/logout            (clear both cookies)`}
+
+━━ ENV VARIABLES (.env.local) ━━
+  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+  JOBBER_CLIENT_ID, JOBBER_CLIENT_SECRET${state.jobberStrategy === 'webhook' ? '\n  JOBBER_WEBHOOK_SECRET' : ''}
+  MONGODB_URI
+  ${state.sessionStorage === 'jwt' ? 'JWT_ACCESS_SECRET, JWT_REFRESH_SECRET' : 'SESSION_SECRET'}
+  ${state.sessionStorage === 'redis' ? 'REDIS_URL\n  ' : ''}FRONTEND_URL, API_URL
+  COOKIE_DOMAIN
+
+━━ JOBBER TOKEN STORAGE ━━
+  After Jobber OAuth callback, persist tokens to .jobber-tokens.json:
+  { "access_token": "...", "refresh_token": "...", "expires_at": 1234567890 }
+  Add .jobber-tokens.json to .gitignore. On app startup, load tokens from this
+  file. On 401 from Jobber API, auto-refresh and write updated tokens back.
+
+Please scaffold the full project (monorepo or separate frontend/backend dirs),
+implement auth with httpOnly cookie tokens + refresh rotation, create the Ticket
+and Note models + ${apiStyle} endpoints, set up Jobber OAuth + token file +
+sync (${jsync.split('(')[0].trim()}), add all security middleware, and build the
+React admin with all listed views. Use TypeScript throughout.`;
+
+  document.getElementById('prompt-text').textContent = prompt;
+}
+
+function copyPrompt() {
+  const text = document.getElementById('prompt-text').textContent;
+  navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  });
+  const btn = document.getElementById('copy-btn');
+  btn.textContent = 'Copied!';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Copy Prompt'; btn.classList.remove('copied'); }, 2000);
+}
+
+function update() {
+  readState();
+  renderDiagram();
+  updatePrompt();
+}
+
+window.addEventListener('resize', renderDiagram);
+update();
+</script>
+</body>
+</html>
