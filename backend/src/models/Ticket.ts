@@ -3,7 +3,7 @@ import { nextSequence } from './Counter';
 
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
-export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor';
+export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor' | 'lead';
 export type GHLEntityType = 'contact' | 'opportunity' | 'appointment';
 
 export interface ITicket extends Document {
@@ -45,7 +45,7 @@ const TicketSchema = new Schema<ITicket>(
     assigned_to: { type: Schema.Types.ObjectId, ref: 'User' },
     jobber_entity_type: {
       type: String,
-      enum: ['client', 'job', 'visit', 'property', 'vendor'],
+      enum: ['client', 'job', 'visit', 'property', 'vendor', 'lead'],
     },
     jobber_entity_id: String,
     jobber_entity_label: { type: String, maxlength: 300 },

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { JobberEntityPicker } from '@/components/JobberEntityPicker';
 import {
   Trash2, Plus, Bot, StickyNote, Check, X,
-  CheckCircle2, Clock, Bell, FileText,
+  CheckCircle2, Clock, Bell, FileText, Send,
 } from 'lucide-react';
 import { BulkMessageModal } from '@/components/BulkMessageModal';
 
@@ -19,7 +19,7 @@ interface TaskListProps {
   agentRunning?: boolean;
 }
 
-type TaskBulkAction = 'delete' | 'status' | 'notify' | 'rfp';
+type TaskBulkAction = 'delete' | 'status' | 'notify';
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'Pending',
@@ -200,7 +200,8 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
   const [entityId, setEntityId] = useState('');
   const [entityLabel, setEntityLabel] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [modalType, setModalType] = useState<'notify' | 'rfp' | null>(null);
+  const [modalType, setModalType] = useState<'notify' | null>(null);
+  const [rfpModalOpen, setRfpModalOpen] = useState(false);
   const queryClient = useQueryClient();
   const editable = ticketStatus !== 'closed';
 
@@ -234,6 +235,19 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
       void queryClient.invalidateQueries({ queryKey: ['notes', ticketId] });
       setSelectedIds(new Set());
       setModalType(null);
+    },
+  });
+
+  const sendRFP = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; sent: number; skipped: number; vendors: Array<{ name: string; channel: string }> }>(
+        `/api/tickets/${ticketId}/tasks/rfp`,
+        { taskIds: [...selectedIds] }
+      ).then((r) => r.data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', ticketId] });
+      void queryClient.invalidateQueries({ queryKey: ['notes', ticketId] });
+      setSelectedIds(new Set());
     },
   });
 
@@ -339,7 +353,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
             disabled={bulk.isPending}
-            onClick={() => setModalType('rfp')}
+            onClick={() => { setRfpModalOpen(true); sendRFP.reset(); }}
           >
             <FileText className="h-3 w-3 mr-1 text-violet-400" />
             Send RFP
@@ -431,7 +445,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
         </form>
       )}
 
-      {/* ── Message modal ── */}
+      {/* ── Message modal (notify) ── */}
       {modalType && (
         <BulkMessageModal
           type={modalType}
@@ -441,6 +455,87 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
           onSend={(message) => bulk.mutate({ action: modalType, message })}
           isSending={bulk.isPending}
         />
+      )}
+
+      {/* ── RFP modal ── */}
+      {rfpModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-background border rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h3 className="font-semibold text-base flex items-center gap-2">
+                <FileText className="h-4 w-4 text-violet-400" />
+                Send RFP to Vendors
+              </h3>
+              <button
+                className="text-muted-foreground hover:text-foreground text-lg leading-none"
+                onClick={() => { setRfpModalOpen(false); sendRFP.reset(); }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-3">
+              {!sendRFP.isSuccess ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    <span className="text-foreground font-medium">{selectedIds.size} task{selectedIds.size !== 1 ? 's' : ''}</span> selected.
+                    Matching prospect vendors will be looked up from GoHighLevel by service type and location,
+                    then contacted via SMS or email.
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                    {tasks.filter((t) => selectedIds.has(t._id)).map((t) => (
+                      <li key={t._id} className="truncate">{t.description}</li>
+                    ))}
+                  </ul>
+                  {sendRFP.isError && (
+                    <p className="text-xs text-destructive">
+                      {(sendRFP.error as { response?: { data?: { error?: string } } })?.response?.data?.error
+                        ?? 'Failed — check backend console.'}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-green-400">
+                    RFP sent — {sendRFP.data?.sent} message{(sendRFP.data?.sent ?? 0) !== 1 ? 's' : ''} delivered
+                    {(sendRFP.data?.skipped ?? 0) > 0 && `, ${sendRFP.data?.skipped} vendor(s) skipped`}.
+                  </p>
+                  {(sendRFP.data?.vendors?.length ?? 0) > 0 && (
+                    <ul className="text-xs space-y-1">
+                      {sendRFP.data?.vendors.map((v, i) => (
+                        <li key={i} className="flex items-center gap-2">
+                          <Send className="h-3 w-3 text-violet-400 shrink-0" />
+                          <span>{v.name}</span>
+                          <span className="text-muted-foreground">via {v.channel.toUpperCase()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end gap-2">
+              <button
+                className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded"
+                onClick={() => { setRfpModalOpen(false); sendRFP.reset(); }}
+              >
+                {sendRFP.isSuccess ? 'Close' : 'Cancel'}
+              </button>
+              {!sendRFP.isSuccess && (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={sendRFP.isPending}
+                  onClick={() => sendRFP.mutate()}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {sendRFP.isPending ? 'Sending…' : 'Send RFP'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

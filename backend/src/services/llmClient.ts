@@ -202,6 +202,51 @@ async function runGemini(opts: AgentOptions): Promise<void> {
   }
 }
 
+// ─── Simple single-call helper (no tool loop) ────────────────────────────────
+
+export interface CallLLMOptions {
+  provider: AIProvider;
+  model: string;
+  apiKey: string;
+  system: string;
+  userMessage: string;
+}
+
+export async function callLLM(opts: CallLLMOptions): Promise<string> {
+  switch (opts.provider) {
+    case 'anthropic': {
+      const client = new Anthropic({ apiKey: opts.apiKey });
+      const resp = await client.messages.create({
+        model: opts.model,
+        max_tokens: 2048,
+        system: opts.system,
+        messages: [{ role: 'user', content: opts.userMessage }],
+      });
+      const block = resp.content[0];
+      return block.type === 'text' ? block.text : '';
+    }
+    case 'openai': {
+      const client = new OpenAI({ apiKey: opts.apiKey });
+      const resp = await client.chat.completions.create({
+        model: opts.model,
+        messages: [
+          { role: 'system', content: opts.system },
+          { role: 'user', content: opts.userMessage },
+        ],
+      });
+      return resp.choices[0].message.content ?? '';
+    }
+    case 'google': {
+      const genAI = new GoogleGenerativeAI(opts.apiKey);
+      const model = genAI.getGenerativeModel({ model: opts.model, systemInstruction: opts.system });
+      const resp = await model.generateContent(opts.userMessage);
+      return resp.response.text();
+    }
+    default:
+      throw new Error(`Unknown provider: ${opts.provider as string}`);
+  }
+}
+
 // ─── Public entry point ─────────────────────────────────────────────────────
 
 export async function runAgentLoop(opts: AgentOptions): Promise<void> {

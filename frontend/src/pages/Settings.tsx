@@ -58,6 +58,7 @@ type AIProvider = 'anthropic' | 'openai' | 'google';
 interface AISettings {
   provider: AIProvider;
   model: string;
+  rfp_message_grouping: 'individual' | 'combined';
   providers: Record<AIProvider, Array<{ id: string; label: string }>>;
 }
 
@@ -74,6 +75,7 @@ export default function Settings() {
   const [ghlLocationId, setGhlLocationId] = useState('');
   const [showGhlForm, setShowGhlForm] = useState(false);
   const [ghlTestOpen, setGhlTestOpen] = useState(false);
+  const [jobberTestOpen, setJobberTestOpen] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [notifyType, setNotifyType] = useState<'SMS' | 'Email'>('SMS');
   const [notifyMessage, setNotifyMessage] = useState('');
@@ -96,6 +98,18 @@ export default function Settings() {
     staleTime: 0,
   });
 
+  interface JobberTestResult {
+    mock: boolean;
+    entities: Array<{ type: string; data: Record<string, unknown> | null }>;
+  }
+
+  const { data: jobberTestResult, isFetching: jobberTestFetching } = useQuery<JobberTestResult>({
+    queryKey: ['jobber-test-query'],
+    queryFn: () => api.get<JobberTestResult>('/api/jobber/test-query').then((r) => r.data),
+    enabled: jobberTestOpen,
+    staleTime: 0,
+  });
+
   const { data: aiSettings, refetch: refetchAI } = useQuery<AISettings>({
     queryKey: ['ai-settings'],
     queryFn: () => api.get<AISettings>('/api/settings/ai').then((r) => r.data),
@@ -107,7 +121,7 @@ export default function Settings() {
   });
 
   const saveAI = useMutation({
-    mutationFn: (patch: { provider?: AIProvider; model?: string }) =>
+    mutationFn: (patch: { provider?: AIProvider; model?: string; rfp_message_grouping?: 'individual' | 'combined' }) =>
       api.post('/api/settings/ai', { ...aiSettings, ...patch }).then((r) => r.data),
     onSuccess: () => void refetchAI(),
   });
@@ -279,6 +293,25 @@ export default function Settings() {
                 </Select>
               </div>
 
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">RFP Message Grouping</p>
+                <Select
+                  value={aiSettings.rfp_message_grouping ?? 'individual'}
+                  onValueChange={(v) => saveAI.mutate({ rfp_message_grouping: v as 'individual' | 'combined' })}
+                >
+                  <SelectTrigger className="w-72">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="individual">Individual — one message per job per vendor</SelectItem>
+                    <SelectItem value="combined">Combined — one message per vendor with all jobs</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Controls how RFP messages are sent when a vendor covers multiple tasks.
+                </p>
+              </div>
+
               {saveAI.isPending && (
                 <p className="text-xs text-muted-foreground">Saving...</p>
               )}
@@ -325,7 +358,7 @@ export default function Settings() {
             )}
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             {!isJobberConnected ? (
               <Button onClick={handleConnectJobber}>
                 Connect Jobber
@@ -344,14 +377,20 @@ export default function Settings() {
                   Reconnect
                 </Button>
                 <Button variant="outline" className="gap-1.5" disabled title="Coming soon">
-                  <TestTube2 className="h-4 w-4" />
-                  Test Job Query
-                </Button>
-                <Button variant="outline" className="gap-1.5" disabled title="Coming soon">
                   <Send className="h-4 w-4" />
                   Notify Test Client
                 </Button>
               </>
+            )}
+            {(isJobberConnected || mockEnabled) && (
+              <Button
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => setJobberTestOpen(true)}
+              >
+                <TestTube2 className="h-4 w-4" />
+                Test Entity Query
+              </Button>
             )}
           </div>
 
@@ -587,6 +626,70 @@ export default function Settings() {
               >
                 <Send className="h-3.5 w-3.5" />
                 {sendNotify.isPending ? 'Sending...' : `Send ${notifyType}`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Jobber Test Entity Query Modal */}
+      {jobberTestOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-background border rounded-xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div>
+                <h3 className="font-semibold text-base flex items-center gap-2">
+                  <TestTube2 className="h-4 w-4 text-primary" />
+                  Jobber Entity Query Test
+                </h3>
+                {jobberTestResult && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    1 record per entity type
+                    {jobberTestResult.mock && <span className="ml-2 text-warning">(mock data)</span>}
+                  </p>
+                )}
+              </div>
+              <button
+                className="text-muted-foreground hover:text-foreground text-lg leading-none"
+                onClick={() => setJobberTestOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {jobberTestFetching ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">Querying Jobber...</p>
+              ) : jobberTestResult ? (
+                <div className="space-y-3">
+                  {jobberTestResult.entities.map(({ type, data }) => (
+                    <div key={type}>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                        {type}
+                      </p>
+                      {data ? (
+                        <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm space-y-1">
+                          {Object.entries(data)
+                            .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+                            .map(([k, v]) => (
+                              <div key={k} className="flex gap-2 text-xs">
+                                <span className="text-muted-foreground w-28 shrink-0 capitalize">{k.replace(/_/g, ' ')}</span>
+                                <span className="text-foreground">{String(v)}</span>
+                              </div>
+                            ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">No data</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => setJobberTestOpen(false)}>
+                Close
               </Button>
             </div>
           </div>

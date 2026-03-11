@@ -7,6 +7,7 @@ import { User } from '../models/User';
 import { authenticate } from '../middleware/authenticate';
 import { runTicketAgent } from '../services/ticketAgent';
 import { loadAIConfig } from '../services/aiConfig';
+import { runRFP } from '../services/rfpService';
 import { env } from '../config/env';
 
 const router = Router();
@@ -19,7 +20,7 @@ const CreateTicketSchema = z.object({
   description: z.string().max(5000).optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
   assigned_to: z.string().optional(),
-  jobber_entity_type: z.enum(['client', 'job', 'visit', 'property', 'vendor']).optional(),
+  jobber_entity_type: z.enum(['client', 'job', 'visit', 'property', 'vendor', 'lead']).optional(),
   jobber_entity_id: z.string().optional(),
   jobber_entity_label: z.string().max(300).optional(),
   ghl_entity_type: z.enum(['contact', 'opportunity', 'appointment']).optional(),
@@ -38,7 +39,7 @@ const CreateNoteSchema = z.object({
 
 const CreateTaskSchema = z.object({
   description: z.string().min(1).max(2000),
-  jobber_entity_type: z.enum(['client', 'job', 'visit', 'property', 'vendor']).optional(),
+  jobber_entity_type: z.enum(['client', 'job', 'visit', 'property', 'vendor', 'lead']).optional(),
   jobber_entity_id: z.string().optional(),
   jobber_entity_label: z.string().max(300).optional(),
 });
@@ -441,6 +442,25 @@ router.patch('/api/tickets/:id/tasks/:taskId', async (req: Request, res: Respons
     return;
   }
   res.json(task);
+});
+
+// ─── RFP ────────────────────────────────────────────────────────────
+
+router.post('/api/tickets/:id/tasks/rfp', async (req: Request, res: Response) => {
+  const schema = z.object({ taskIds: z.array(z.string()).min(1).max(200) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ errors: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const result = await runRFP(req.params.id, parsed.data.taskIds);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[RFP route]', msg);
+    res.status(500).json({ error: msg });
+  }
 });
 
 router.post('/api/tickets/:id/tasks/bulk', async (req: Request, res: Response) => {

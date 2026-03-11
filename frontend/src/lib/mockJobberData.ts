@@ -1,4 +1,12 @@
-import type { JobberClient, JobberVendor, JobberProperty, JobberJob, JobberVisit } from '@/types';
+import type { JobberClient, JobberLead, JobberVendor, JobberProperty, JobberJob, JobberVisit } from '@/types';
+
+// ─── Leads ──────────────────────────────────────────────────────────────────────
+export const MOCK_LEADS: JobberLead[] = [
+  { id: 'ld01', name: 'Alex Monroe',        email: 'alex.monroe@email.com',   phone: '(305) 555-0301', leadStatus: 'active' },
+  { id: 'ld02', name: 'Sandra Keys',        email: 'sandra.keys@email.com',   phone: '(305) 555-0302', leadStatus: 'active' },
+  { id: 'ld03', name: 'Key Largo Villas',   email: 'info@keylargovillas.com', phone: '(305) 555-0303', leadStatus: 'active' },
+  { id: 'ld04', name: 'Tom Bridgewater',    email: 'tombw@email.com',         phone: '(305) 555-0304', leadStatus: 'active' },
+];
 
 // ─── 25 Clients ────────────────────────────────────────────────────────────────
 export const MOCK_CLIENTS: JobberClient[] = [

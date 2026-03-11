@@ -10,7 +10,7 @@ export interface User {
 
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
-export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor';
+export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor' | 'lead';
 export type GHLEntityType = 'contact' | 'opportunity' | 'appointment';
 
 export interface Ticket {
@@ -64,6 +64,14 @@ export interface TicketListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface JobberLead {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  leadStatus?: string;
 }
 
 export interface JobberClient {

@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'sent';
-export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor';
+export type JobberEntityType = 'client' | 'job' | 'visit' | 'property' | 'vendor' | 'lead';
 
 export interface ITicketTask extends Document {
   ticket_ref: Types.ObjectId;
@@ -29,7 +29,7 @@ const TicketTaskSchema = new Schema<ITicketTask>(
     notes: { type: String, maxlength: 5000 },
     jobber_entity_type: {
       type: String,
-      enum: ['client', 'job', 'visit', 'property', 'vendor'],
+      enum: ['client', 'job', 'visit', 'property', 'vendor', 'lead'],
     },
     jobber_entity_id: String,
     jobber_entity_label: { type: String, maxlength: 300 },

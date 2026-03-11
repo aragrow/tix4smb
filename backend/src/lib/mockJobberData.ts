@@ -1,5 +1,12 @@
 // Mirror of frontend mock data — used by the ticket agent when Jobber is not connected.
 
+export const MOCK_LEADS = [
+  { id: 'ld01', name: 'Alex Monroe',        email: 'alex.monroe@email.com',    phone: '(305) 555-0301', leadStatus: 'active' },
+  { id: 'ld02', name: 'Sandra Keys',        email: 'sandra.keys@email.com',    phone: '(305) 555-0302', leadStatus: 'active' },
+  { id: 'ld03', name: 'Key Largo Villas',   email: 'info@keylargovillas.com',  phone: '(305) 555-0303', leadStatus: 'active' },
+  { id: 'ld04', name: 'Tom Bridgewater',    email: 'tombw@email.com',          phone: '(305) 555-0304', leadStatus: 'active' },
+];
+
 export const MOCK_VENDORS = [
   { id: 'vd01', name: 'Maria Santos',             email: 'maria.santos@cleanpro.com',    phone: '(850) 555-0201', specialty: 'Residential' },
   { id: 'vd02', name: 'Gulf Coast Cleaners LLC',  email: 'info@gulfcoastclean.com',      phone: '(850) 555-0202', specialty: 'Residential & Commercial' },

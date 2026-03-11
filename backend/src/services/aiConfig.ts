@@ -6,6 +6,7 @@ export type AIProvider = 'anthropic' | 'openai' | 'google';
 export interface AIConfig {
   provider: AIProvider;
   model: string;
+  rfp_message_grouping: 'individual' | 'combined';
 }
 
 export const PROVIDER_MODELS: Record<AIProvider, Array<{ id: string; label: string }>> = {
@@ -26,7 +27,7 @@ export const PROVIDER_MODELS: Record<AIProvider, Array<{ id: string; label: stri
   ],
 };
 
-const DEFAULT: AIConfig = { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' };
+const DEFAULT: AIConfig = { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', rfp_message_grouping: 'individual' };
 const CONFIG_FILE = path.resolve(process.cwd(), 'ai-config.json');
 
 export function loadAIConfig(): AIConfig {

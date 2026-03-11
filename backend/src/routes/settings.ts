@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { loadAIConfig, saveAIConfig, PROVIDER_MODELS, type AIProvider } from '../services/aiConfig';
+import { loadAIConfig, saveAIConfig, PROVIDER_MODELS, type AIProvider, type AIConfig } from '../services/aiConfig';
 import { saveGHLConfig, clearGHLConfig, hasGHLConfig, getGHLConfig } from '../services/ghlClient';
 import { authenticate } from '../middleware/authenticate';
 
@@ -12,8 +12,13 @@ router.get('/api/settings/ai', (_req: Request, res: Response) => {
 });
 
 router.post('/api/settings/ai', (req: Request, res: Response) => {
-  const { provider, model } = req.body as { provider: AIProvider; model: string };
-  saveAIConfig({ provider, model });
+  const { provider, model, rfp_message_grouping } = req.body as Partial<AIConfig>;
+  const current = loadAIConfig();
+  saveAIConfig({
+    provider: (provider ?? current.provider) as AIProvider,
+    model: model ?? current.model,
+    rfp_message_grouping: rfp_message_grouping ?? current.rfp_message_grouping,
+  });
   res.json({ ok: true });
 });
 
