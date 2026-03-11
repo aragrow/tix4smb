@@ -127,7 +127,7 @@ function TaskItem({
           <Select
             value={task.status}
             onValueChange={(v) => update.mutate({ status: v as TaskStatus })}
-            disabled={!editable}
+            disabled={!editable || task.agent_generated}
           >
             <SelectTrigger className={`h-6 w-auto gap-1 border-0 px-2 text-xs font-medium ${STATUS_CLASSES[task.status]}`}>
               <SelectValue />
