@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { JobberEntityPicker } from '@/components/JobberEntityPicker';
 import {
   Trash2, Plus, Bot, StickyNote, Check, X,
-  CheckCircle2, Clock, Bell, FileText, Send,
+  CheckCircle2, Clock, Bell, FileText, Send, CalendarClock,
 } from 'lucide-react';
 import { BulkMessageModal } from '@/components/BulkMessageModal';
 
@@ -41,12 +41,14 @@ function TaskItem({
   editable,
   selected,
   onSelect,
+  onDeleted,
 }: {
   task: TicketTask;
   ticketId: string;
   editable: boolean;
   selected: boolean;
   onSelect: (checked: boolean) => void;
+  onDeleted: (id: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [editingNotes, setEditingNotes] = useState(false);
@@ -63,7 +65,10 @@ function TaskItem({
 
   const deleteTask = useMutation({
     mutationFn: () => api.delete(`/api/tickets/${ticketId}/tasks/${task._id}`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['tasks', ticketId] }),
+    onSuccess: () => {
+      onDeleted(task._id);
+      void queryClient.invalidateQueries({ queryKey: ['tasks', ticketId] });
+    },
   });
 
   const startEditNotes = () => {
@@ -213,6 +218,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modalType, setModalType] = useState<'notify' | null>(null);
   const [rfpModalOpen, setRfpModalOpen] = useState(false);
+  const [rfrschModalOpen, setRfrschModalOpen] = useState(false);
   const queryClient = useQueryClient();
   const editable = ticketStatus !== 'closed';
 
@@ -253,6 +259,19 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
     mutationFn: () =>
       api.post<{ ok: boolean; sent: number; skipped: number; vendors: Array<{ name: string; channel: string }> }>(
         `/api/tickets/${ticketId}/tasks/rfp`,
+        { taskIds: [...selectedIds] }
+      ).then((r) => r.data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', ticketId] });
+      void queryClient.invalidateQueries({ queryKey: ['notes', ticketId] });
+      setSelectedIds(new Set());
+    },
+  });
+
+  const sendRFRSCH = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; sent: number; skipped: number; vendors: Array<{ name: string; channel: string }> }>(
+        `/api/tickets/${ticketId}/tasks/rfrsch`,
         { taskIds: [...selectedIds] }
       ).then((r) => r.data),
     onSuccess: () => {
@@ -336,6 +355,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
 
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
+            title="Mark all selected tasks as done"
             disabled={bulk.isPending}
             onClick={() => bulk.mutate({ action: 'status', status: 'done' })}
           >
@@ -345,6 +365,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
 
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
+            title="Mark all selected tasks as pending"
             disabled={bulk.isPending}
             onClick={() => bulk.mutate({ action: 'status', status: 'pending' })}
           >
@@ -354,6 +375,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
 
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
+            title="Send a generic notification to the linked entity"
             disabled={bulk.isPending}
             onClick={() => setModalType('notify')}
           >
@@ -363,6 +385,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
 
           <Button
             size="sm" variant="outline" className="h-7 text-xs"
+            title="Send a Request for Proposal to matching Prospect Vendors in GoHighLevel"
             disabled={bulk.isPending}
             onClick={() => { setRfpModalOpen(true); sendRFP.reset(); }}
           >
@@ -371,7 +394,18 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
           </Button>
 
           <Button
+            size="sm" variant="outline" className="h-7 text-xs"
+            title="Send a Request for Reschedule to the assigned vendor"
+            disabled={bulk.isPending}
+            onClick={() => { setRfrschModalOpen(true); sendRFRSCH.reset(); }}
+          >
+            <CalendarClock className="h-3 w-3 mr-1 text-sky-400" />
+            Send RFRSCH
+          </Button>
+
+          <Button
             size="sm" variant="outline" className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+            title="Permanently delete all selected tasks"
             disabled={bulk.isPending}
             onClick={() => {
               if (confirm(`Delete ${selectedIds.size} task(s)?`)) bulk.mutate({ action: 'delete' });
@@ -410,6 +444,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
               editable={editable}
               selected={selectedIds.has(task._id)}
               onSelect={(checked) => toggleOne(task._id, checked)}
+              onDeleted={(id) => setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; })}
             />
           ))}
         </div>
@@ -466,6 +501,86 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
           onSend={(message) => bulk.mutate({ action: modalType, message })}
           isSending={bulk.isPending}
         />
+      )}
+
+      {/* ── RFRSCH modal ── */}
+      {rfrschModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-background border rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h3 className="font-semibold text-base flex items-center gap-2">
+                <CalendarClock className="h-4 w-4 text-sky-400" />
+                Send Reschedule Request
+              </h3>
+              <button
+                className="text-muted-foreground hover:text-foreground text-lg leading-none"
+                onClick={() => { setRfrschModalOpen(false); sendRFRSCH.reset(); }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-3">
+              {!sendRFRSCH.isSuccess ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    <span className="text-foreground font-medium">{selectedIds.size} task{selectedIds.size !== 1 ? 's' : ''}</span> selected.
+                    Matching vendors will be contacted via SMS or email to arrange a new time.
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                    {tasks.filter((t) => selectedIds.has(t._id)).map((t) => (
+                      <li key={t._id} className="truncate">{t.description}</li>
+                    ))}
+                  </ul>
+                  {sendRFRSCH.isError && (
+                    <p className="text-xs text-destructive">
+                      {(sendRFRSCH.error as { response?: { data?: { error?: string } } })?.response?.data?.error
+                        ?? 'Failed — check backend console.'}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-green-400">
+                    Reschedule request sent — {sendRFRSCH.data?.sent} message{(sendRFRSCH.data?.sent ?? 0) !== 1 ? 's' : ''} delivered
+                    {(sendRFRSCH.data?.skipped ?? 0) > 0 && `, ${sendRFRSCH.data?.skipped} vendor(s) skipped`}.
+                  </p>
+                  {(sendRFRSCH.data?.vendors?.length ?? 0) > 0 && (
+                    <ul className="text-xs space-y-1">
+                      {sendRFRSCH.data?.vendors.map((v, i) => (
+                        <li key={i} className="flex items-center gap-2">
+                          <Send className="h-3 w-3 text-sky-400 shrink-0" />
+                          <span>{v.name}</span>
+                          <span className="text-muted-foreground">via {v.channel.toUpperCase()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end gap-2">
+              <button
+                className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded"
+                onClick={() => { setRfrschModalOpen(false); sendRFRSCH.reset(); }}
+              >
+                {sendRFRSCH.isSuccess ? 'Close' : 'Cancel'}
+              </button>
+              {!sendRFRSCH.isSuccess && (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={sendRFRSCH.isPending}
+                  onClick={() => sendRFRSCH.mutate()}
+                >
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  {sendRFRSCH.isPending ? 'Sending…' : 'Send Request'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── RFP modal ── */}

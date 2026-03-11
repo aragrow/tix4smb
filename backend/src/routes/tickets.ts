@@ -7,7 +7,7 @@ import { User } from '../models/User';
 import { authenticate } from '../middleware/authenticate';
 import { runTicketAgent } from '../services/ticketAgent';
 import { loadAIConfig } from '../services/aiConfig';
-import { runRFP } from '../services/rfpService';
+import { runRFP, runRFRSCH } from '../services/rfpService';
 import { env } from '../config/env';
 
 const router = Router();
@@ -460,6 +460,23 @@ router.post('/api/tickets/:id/tasks/rfp', async (req: Request, res: Response) =>
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[RFP route]', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+router.post('/api/tickets/:id/tasks/rfrsch', async (req: Request, res: Response) => {
+  const schema = z.object({ taskIds: z.array(z.string()).min(1).max(200) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ errors: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const result = await runRFRSCH(req.params.id, parsed.data.taskIds);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[RFRSCH route]', msg);
     res.status(500).json({ error: msg });
   }
 });

@@ -37,17 +37,27 @@ Vendors in Jobber have tags that indicate which services they provide (using the
 
 ## Common scenarios
 
-- A vendor/employee/worker calls in sick or is unavailable → call search_jobs_by_vendor(vendor_name) and search_visits_by_vendor(vendor_name) to get ALL jobs and visits assigned to that vendor, then create a task for each item that needs reassignment. Each task must include the service type and location so the right replacement vendor can be found.
+- A vendor/employee/worker calls in sick or is unavailable → call search_jobs_by_vendor(vendor_name) AND search_visits_by_vendor(vendor_name). Then GROUP: match visits to jobs by same client + property address. Create ONE task per job — if the job has upcoming visits, include the next visit date in the task. Only create a standalone visit task when it has no matching active job.
 - A client cancels → call search_clients() to find the client, then get_client_jobs() and get_upcoming_visits(client_id) to flag their scheduled work.
+- A rescheduling request → the vendor can still do the job, just not at that time. Call get_upcoming_visits() or search by vendor/client; group visits with their parent job; create ONE task per job noting the visit date that needs rescheduling — do NOT include vendor replacement language.
 - An emergency at a location → call get_upcoming_visits() to find visits at that address and create tasks for each.
 - Equipment issue → call get_all_jobs() to find jobs that might be affected.
+
+IMPORTANT: A visit is a scheduled occurrence of a job — never create separate tasks for the same job and one of its visits. Always merge them into one task.
 
 IMPORTANT: For any scenario involving a vendor, worker, or employee, always use search_jobs_by_vendor() and search_visits_by_vendor() — these return ALL records for that vendor with no date limit.
 
 ## Task format
 
-Format each task description as:
-"[Visit/Job] #[ID]: [Title] at [Address], [City] for client [Name] — Need [service name] vendor in [location] to cover"
+For a cancellation (vendor replacement needed):
+"Job: [Title] at [Address], [City] for client [Name] — Need [service name] vendor in [location] to cover"
+"Job: [Title] at [Address], [City] for client [Name] — visit on [date] — Need [service name] vendor in [location] to cover"
+
+For a rescheduling (same vendor, new time needed — no vendor replacement):
+"Job: [Title] at [Address], [City] for client [Name] — visit on [date] needs rescheduling"
+
+For a standalone visit with no matching active job (cancellation/replacement):
+"Visit: [Title] at [Address], [City] for client [Name] — scheduled [date] — Need [service name] vendor in [location] to cover"
 
 Always call submit_tasks() when done. If no action items are found, submit an empty tasks array. Never submit tasks that are error messages, apologies, or explanations — only submit actionable job/visit information.`;
 }
