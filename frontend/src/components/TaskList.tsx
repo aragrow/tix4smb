@@ -79,19 +79,30 @@ function TaskItem({
     >
       <div className="flex items-start gap-3">
         {/* Checkbox */}
-        <div className="flex items-center pt-0.5 shrink-0">
-          <input
-            type="checkbox"
-            className="h-3.5 w-3.5 rounded accent-primary cursor-pointer"
-            checked={selected}
-            onChange={(e) => onSelect(e.target.checked)}
-          />
-        </div>
+        {(() => {
+          const m = task.description.match(/^(Job|Visit)\s+#([A-Za-z0-9+/=]+):/);
+          const entityId = m?.[2] ?? task.jobber_entity_id;
+          return (
+            <div className="flex items-center pt-0.5 shrink-0">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded accent-primary cursor-pointer"
+                checked={selected}
+                onChange={(e) => onSelect(e.target.checked)}
+                title={entityId}
+              />
+            </div>
+          );
+        })()}
 
         {/* Description */}
         <div className="flex-1 min-w-0 space-y-0.5">
           <p className={`text-sm ${task.status === 'done' ? 'line-through text-muted-foreground' : ''}`}>
-            {task.description}
+            {(() => {
+              const m = task.description.match(/^(Job|Visit)\s+#([A-Za-z0-9+/=]+):\s+(.+)$/s);
+              if (m) return <><span title={m[2]} className="font-medium cursor-help">{m[1]}</span>: {m[3]}</>;
+              return task.description;
+            })()}
           </p>
           {task.jobber_entity_label && (
             <p className="text-xs text-muted-foreground">

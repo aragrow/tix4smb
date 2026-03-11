@@ -12,6 +12,7 @@ import { TaskList } from '@/components/TaskList';
 import { ChevronLeft, Trash2, Pencil, Check, X, Bot, Loader2, CheckCircle, Mail } from 'lucide-react';
 import { JobberEntityPicker } from '@/components/JobberEntityPicker';
 import { Input } from '@/components/ui/input';
+import { isMockJobberEnabled } from '@/hooks/useMockJobber';
 
 // ─── Jobber entity display ───────────────────────────────────────────────────
 
@@ -55,8 +56,7 @@ function JobberEntityDisplay({
     <div className="flex flex-col gap-0.5">
       <p className="text-sm flex items-center gap-2">
         <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${typeColor}`}>{typeLabel}</span>
-        {primary}
-        <span className="text-xs text-muted-foreground">({id})</span>
+        <span title={id}>{primary}</span>
       </p>
       {secondary.map((line, i) => (
         <p key={i} className="text-xs text-muted-foreground mt-0.5">{line}</p>
@@ -190,7 +190,7 @@ export default function TicketDetail() {
   });
 
   const runAgent = useMutation({
-    mutationFn: () => api.post(`/api/tickets/${id!}/run-agent`),
+    mutationFn: () => api.post(`/api/tickets/${id!}/run-agent`, { mock: isMockJobberEnabled() }),
     onMutate: () => {
       agentNoteBaselineRef.current = tasks?.length ?? 0;
       setAgentState('running');

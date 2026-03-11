@@ -6,7 +6,7 @@ interface BusinessConfig {
   locations: string[];
 }
 
-const CONFIG_PATH = path.resolve(__dirname, 'businessConfig.json');
+const CONFIG_PATH = path.resolve(__dirname, 'business-config.json');
 
 let _config: BusinessConfig | null = null;
 
@@ -21,3 +21,4 @@ export function loadBusinessConfig(): BusinessConfig {
   }
   return _config;
 }
+

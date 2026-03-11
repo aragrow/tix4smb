@@ -145,7 +145,8 @@ const TOOLS: ToolDef[] = [
 
 // ─── Jobber data fetchers ───────────────────────────────────────────────────
 
-const useMock = () => !hasTokens();
+let _mockOverride: boolean | null = null;
+const useMock = () => _mockOverride !== null ? _mockOverride : !hasTokens();
 
 async function searchClients(name: string) {
   if (useMock()) {
@@ -205,10 +206,10 @@ async function getUpcomingVisits(days = 30, clientId?: string) {
   const from = new Date().toISOString();
   const to = new Date(Date.now() + days * 86400000).toISOString();
   const data = await jobberGraphQL<{
-    visits: { nodes: Array<{ id: string; title: string; startAt: string; status: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
+    visits: { nodes: Array<{ id: string; title: string; startAt: string; visitStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
   }>(`query GetVisits($from: ISO8601DateTime, $to: ISO8601DateTime) {
       visits(filter: { startAt: { gte: $from, lte: $to } }) {
-        nodes { id title startAt status client { id name } property { address { street city } } }
+        nodes { id title startAt visitStatus client { id name } property { address { street city } } }
       }
     }`, { from, to });
   const nodes = data.visits.nodes;
@@ -236,9 +237,9 @@ async function searchVisitsByVendor(vendorName: string) {
   }
   // Real Jobber: fetch all visits and filter client-side
   const data = await jobberGraphQL<{
-    visits: { nodes: Array<{ id: string; title: string; startAt: string; status: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
+    visits: { nodes: Array<{ id: string; title: string; startAt: string; visitStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
   }>(`query GetAllVisits {
-      visits { nodes { id title startAt status client { id name } property { address { street city } } } }
+      visits { nodes { id title startAt visitStatus client { id name } property { address { street city } } } }
     }`);
   return data.visits.nodes;
 }
@@ -275,7 +276,8 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
 // ─── Public entry ───────────────────────────────────────────────────────────
 
-export async function runTicketAgent(ticketId: string): Promise<void> {
+export async function runTicketAgent(ticketId: string, mockOverride?: boolean): Promise<void> {
+  _mockOverride = mockOverride ?? null;
   try {
     const ticket = await Ticket.findById(ticketId).lean();
     if (!ticket) return;
@@ -360,3 +362,4 @@ export async function runTicketAgent(ticketId: string): Promise<void> {
     console.error('[Agent] Error:', err);
   }
 }
+

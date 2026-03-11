@@ -334,7 +334,8 @@ router.post('/api/tickets/:id/run-agent', async (req: Request, res: Response) =>
     res.status(404).json({ error: 'Ticket not found' });
     return;
   }
-  void runTicketAgent(req.params.id);
+  const useMock = req.body?.mock === true;
+  void runTicketAgent(req.params.id, useMock);
   res.json({ ok: true });
 });
 
