@@ -4,137 +4,325 @@ import { jobberGraphQL, hasTokens } from './jobberClient';
 import { runAgentLoop, type ToolDef } from './llmClient';
 import { loadAIConfig } from './aiConfig';
 import { env } from '../config/env';
-import { MOCK_CLIENTS, MOCK_JOBS, MOCK_VISITS } from '../lib/mockJobberData';
+import { MOCK_JOBS, MOCK_VISITS, MOCK_QUOTES } from '../lib/mockJobberData';
 import { loadBusinessConfig } from '../lib/businessConfig';
+import { logger } from '../lib/logger';
 
-// ─── System prompt ──────────────────────────────────────────────────────────
+// ─── Buffer types ─────────────────────────────────────────────────────────────
+
+type JobRecord = {
+  id: string;
+  title: string;
+  status: string;
+  clientName: string;
+  street: string;
+  city: string;
+};
+
+type VisitRecord = {
+  id: string;
+  title: string;
+  date: string;
+  clientName: string;
+  street: string;
+  city: string;
+};
+
+type QuoteRecord = {
+  id: string;
+  title: string;
+  status: string;
+  clientName: string;
+  street: string;
+  city: string;
+};
+
+type RawQuote = {
+  id: string; title?: string | null; quoteStatus?: string; status?: string;
+  client?: { id?: string; name?: string };
+  property?: { address?: { street?: string; city?: string }; street?: string; city?: string };
+};
+
+type BufferEntry =
+  | { kind: 'jobs'; action: string; records: JobRecord[] }
+  | { kind: 'visits'; action: string; records: VisitRecord[] }
+  | { kind: 'quotes'; action: string; records: QuoteRecord[] };
+
+// ─── Data normalizers ─────────────────────────────────────────────────────────
+
+type RawJob = {
+  id: string; title: string; jobStatus?: string; status?: string;
+  client?: { name?: string };
+  property?: { address?: { street?: string; city?: string }; street?: string; city?: string };
+};
+
+type RawVisit = {
+  id: string; title?: string | null; startAt?: string; scheduledStart?: string;
+  client?: { id?: string; name?: string };
+  property?: { address?: { street?: string; city?: string }; street?: string; city?: string };
+  job?: { title?: string | null };
+};
+
+function normalizeJob(j: RawJob): JobRecord {
+  const prop = j.property as Record<string, unknown> | undefined;
+  const street = j.property?.address?.street ?? (prop?.street as string) ?? '';
+  const city = j.property?.address?.city ?? (prop?.city as string) ?? '';
+  return {
+    id: j.id,
+    title: j.title ?? `Job #${j.id}`,
+    status: j.jobStatus ?? j.status ?? '',
+    clientName: j.client?.name ?? '',
+    street,
+    // Only append city if not already contained in the street string
+    city: city && street.toLowerCase().includes(city.toLowerCase()) ? '' : city,
+  };
+}
+
+function normalizeVisit(v: RawVisit): VisitRecord {
+  const prop = v.property as Record<string, unknown> | undefined;
+  const street = v.property?.address?.street ?? (prop?.street as string) ?? '';
+  const city = v.property?.address?.city ?? (prop?.city as string) ?? '';
+  return {
+    id: v.id,
+    // Jobber visits may not have their own title — use parent job title as fallback
+    title: v.job?.title ?? v.title ?? 'Visit',
+    date: (v.startAt ?? v.scheduledStart ?? '').slice(0, 10),
+    clientName: v.client?.name ?? '',
+    street,
+    city: city && street.toLowerCase().includes(city.toLowerCase()) ? '' : city,
+  };
+}
+
+function normalizeQuote(q: RawQuote): QuoteRecord {
+  const prop = q.property as Record<string, unknown> | undefined;
+  const street = q.property?.address?.street ?? (prop?.street as string) ?? '';
+  const city = q.property?.address?.city ?? (prop?.city as string) ?? '';
+  return {
+    id: q.id,
+    title: q.title ?? `Quote #${q.id}`,
+    status: q.quoteStatus ?? q.status ?? '',
+    clientName: q.client?.name ?? '',
+    street,
+    city: city && street.toLowerCase().includes(city.toLowerCase()) ? '' : city,
+  };
+}
+
+// ─── Task generation from buffer ─────────────────────────────────────────────
+
+const ACTION_VERBS: Record<string, string> = {
+  cancel: 'Cancel',
+  reschedule: 'Reschedule',
+  rebid: 'Rebid',
+  review: 'Review',
+  follow_up: 'Follow up on',
+};
+
+function generateTasksFromBuffer(buffer: BufferEntry[]): string[] {
+  const tasks: string[] = [];
+  for (const entry of buffer) {
+    const verb = ACTION_VERBS[entry.action] ?? 'Action for';
+    if (entry.kind === 'jobs') {
+      for (const r of entry.records) {
+        const loc = [r.street, r.city].filter(Boolean).join(', ');
+        tasks.push(`${verb} job "${r.title}"${loc ? ` at ${loc}` : ''}${r.clientName ? ` for ${r.clientName}` : ''}`);
+      }
+    } else if (entry.kind === 'visits') {
+      for (const r of entry.records) {
+        const loc = [r.street, r.city].filter(Boolean).join(', ');
+        tasks.push(`${verb} visit "${r.title}"${r.date ? ` on ${r.date}` : ''}${loc ? ` at ${loc}` : ''}${r.clientName ? ` for ${r.clientName}` : ''}`);
+      }
+    } else {
+      for (const r of entry.records) {
+        const loc = [r.street, r.city].filter(Boolean).join(', ');
+        tasks.push(`${verb} quote "${r.title}"${loc ? ` at ${loc}` : ''}${r.clientName ? ` for ${r.clientName}` : ''}`);
+      }
+    }
+  }
+  return tasks;
+}
+
+// ─── System prompt ─────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(): string {
   const biz = loadBusinessConfig();
-
-  const serviceLines = Object.entries(biz.services)
-    .map(([code, name]) => `  ${code} = ${name}`)
-    .join('\n');
-
+  const serviceLines = Object.entries(biz.services).map(([code, name]) => `  ${code} = ${name}`).join('\n');
   const locationLines = biz.locations.map((l) => `  - ${l}`).join('\n');
 
-  return `You are a ticket intelligence agent for TIX4SMB, a ticket management system for a cleaning services business that uses Jobber for field operations.
+  return `You are a ticket intelligence agent for TIX4SMB, a ticket management system for a cleaning services business.
 
-When a new support ticket is created, your job is to:
-1. Analyze the ticket title and description to understand the situation
-2. Use the available tools to find relevant Jobber data (clients, jobs, visits)
-3. Submit clear, actionable tasks for each item that needs attention
+Your job is to analyze a new ticket, detect the intended actions from the description, and call the appropriate query tools. The app generates task descriptions from the results — you just call the right tools with the right actions.
 
 ## Business context
 
-Service types (vendors carry tags matching these codes):
+Service types:
 ${serviceLines}
 
 Service locations:
 ${locationLines}
 
-Vendors in Jobber have tags that indicate which services they provide (using the codes above) and which locations they cover. Use the service codes and locations to classify each job and identify what type of replacement vendor is needed.
+## Step 1 — Detect actions from the description
 
-## Common scenarios
+Scan the description for these keywords and map each to an action value:
 
-- A vendor/employee/worker calls in sick or is unavailable → call search_jobs_by_vendor(vendor_name) AND search_visits_by_vendor(vendor_name). Then GROUP: match visits to jobs by same client + property address. Create ONE task per job — if the job has upcoming visits, include the next visit date in the task. Only create a standalone visit task when it has no matching active job.
-- A client cancels → call search_clients() to find the client, then get_client_jobs() and get_upcoming_visits(client_id) to flag their scheduled work.
-- A rescheduling request → the vendor can still do the job, just not at that time. Call get_upcoming_visits() or search by vendor/client; group visits with their parent job; create ONE task per job noting the visit date that needs rescheduling — do NOT include vendor replacement language.
-- An emergency at a location → call get_upcoming_visits() to find visits at that address and create tasks for each.
-- Equipment issue → call get_all_jobs() to find jobs that might be affected.
+| Keywords | Action |
+|----------|--------|
+| cancel, cancellation, terminate, stop, end | cancel |
+| reschedule, move, delay, shift, postpone | reschedule |
+| rebid, re-bid, new bid, requote, new quote | rebid |
+| review, check, assess, look into | review |
+| follow up, contact, reach out, notify | follow_up |
 
-IMPORTANT: A visit is a scheduled occurrence of a job — never create separate tasks for the same job and one of its visits. Always merge them into one task.
+If multiple actions are detected (e.g. "cancel and rebid"), call the search tools **once per action**.
 
-IMPORTANT: For any scenario involving a vendor, worker, or employee, always use search_jobs_by_vendor() and search_visits_by_vendor() — these return ALL records for that vendor with no date limit.
+## Step 2 — Detect scope from the description
 
-## Task format
+- "jobs" mentioned → call job search tools
+- "visits" mentioned → call visit search tools
+- "quotes" mentioned → call get_quotes tool
+- No scope specified, or "all" / "everything" → call ALL relevant tools (jobs + visits + quotes)
 
-For a cancellation (vendor replacement needed):
-"Job: [Title] at [Address], [City] for client [Name] — Need [service name] vendor in [location] to cover"
-"Job: [Title] at [Address], [City] for client [Name] — visit on [date] — Need [service name] vendor in [location] to cover"
+## Step 3 — Call tools using the Linked entity ID
 
-For a rescheduling (same vendor, new time needed — no vendor replacement):
-"Job: [Title] at [Address], [City] for client [Name] — visit on [date] needs rescheduling"
+**For a vendor entity:**
+- Jobs → search_jobs_by_vendor(vendor_id, action)
+- Visits → search_visits_by_vendor(vendor_id, action)
+- Quotes → search_quotes_by_vendor(vendor_id, action)
 
-For a standalone visit with no matching active job (cancellation/replacement):
-"Visit: [Title] at [Address], [City] for client [Name] — scheduled [date] — Need [service name] vendor in [location] to cover"
+**For a client entity:**
+- Jobs → search_jobs_by_client(client_id, action)
+- Visits → search_visits_by_client(client_id, action)
+- Quotes → search_quotes_by_client(client_id, action)
 
-Always call submit_tasks() when done. If no action items are found, submit an empty tasks array. Never submit tasks that are error messages, apologies, or explanations — only submit actionable job/visit information.`;
+## Multi-action example
+
+Description: "cancel and rebid all jobs, visits, and quotes"
+→ search_jobs_by_vendor(vendor_id, action="cancel")
+→ search_visits_by_vendor(vendor_id, action="cancel")
+→ search_quotes_by_vendor(vendor_id, action="cancel")
+→ search_jobs_by_vendor(vendor_id, action="rebid")
+→ search_visits_by_vendor(vendor_id, action="rebid")
+→ search_quotes_by_vendor(vendor_id, action="rebid")
+
+## Action values
+- "cancel" — work needs to be cancelled or reassigned
+- "reschedule" — same vendor/client, different time
+- "rebid" — needs a new bid or quote prepared
+- "review" — needs review or assessment
+- "follow_up" — follow-up needed
+
+## Finishing up
+After calling all query tools, call submit_tasks() with any supplementary tasks not covered by the queries (e.g. "Notify affected clients"). Leave the array empty if none needed.`;
 }
 
-// ─── Tool definitions ───────────────────────────────────────────────────────
+// ─── Tool definitions ─────────────────────────────────────────────────────────
+
+const ACTION_PARAM = {
+  action: {
+    type: 'string',
+    enum: ['cancel', 'reschedule', 'rebid', 'review', 'follow_up'],
+    description: 'What needs to be done with the found records.',
+  },
+};
 
 const TOOLS: ToolDef[] = [
   {
-    name: 'search_clients',
-    description: 'Search Jobber clients by name. Returns a list of matching clients with their IDs.',
-    parameters: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Client name or partial name to search for' },
-      },
-      required: ['name'],
-    },
-  },
-  {
-    name: 'get_client_jobs',
-    description: 'Get all active jobs for a specific Jobber client by their ID.',
-    parameters: {
-      type: 'object',
-      properties: {
-        client_id: { type: 'string', description: 'The Jobber client ID' },
-      },
-      required: ['client_id'],
-    },
-  },
-  {
-    name: 'get_all_jobs',
-    description: 'Get all Jobber jobs, optionally filtered by status.',
-    parameters: {
-      type: 'object',
-      properties: {
-        status: { type: 'string', description: 'Filter by job status: active or completed. Omit for all.' },
-      },
-      required: [],
-    },
-  },
-  {
-    name: 'get_upcoming_visits',
-    description: 'Get scheduled visits coming up in the next N days, optionally filtered by client ID.',
-    parameters: {
-      type: 'object',
-      properties: {
-        days: { type: 'number', description: 'Number of days ahead to look (default: 30)' },
-        client_id: { type: 'string', description: 'Optional: filter visits by client ID' },
-      },
-      required: [],
-    },
-  },
-  {
     name: 'search_jobs_by_vendor',
-    description: 'Find ALL jobs assigned to a specific vendor (no date limit, no status filter). Use this when a vendor is unavailable or sick.',
+    description: 'Find all jobs assigned to a specific vendor by their ID.',
     parameters: {
       type: 'object',
       properties: {
-        vendor_name: { type: 'string', description: 'Vendor name or partial name to search for (case-insensitive).' },
+        vendor_id: { type: 'string', description: 'The vendor entity ID.' },
+        ...ACTION_PARAM,
       },
-      required: ['vendor_name'],
+      required: ['vendor_id', 'action'],
     },
   },
   {
     name: 'search_visits_by_vendor',
-    description: 'Find ALL visits assigned to a specific vendor (no date limit). Use this when a vendor is unavailable or sick.',
+    description: 'Find all visits assigned to a specific vendor by their ID.',
     parameters: {
       type: 'object',
       properties: {
-        vendor_name: { type: 'string', description: 'Vendor name or partial name to search for (case-insensitive).' },
+        vendor_id: { type: 'string', description: 'The vendor entity ID.' },
+        ...ACTION_PARAM,
       },
-      required: ['vendor_name'],
+      required: ['vendor_id', 'action'],
+    },
+  },
+  {
+    name: 'search_quotes_by_vendor',
+    description: 'Find all quotes associated with a specific vendor by their ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        vendor_id: { type: 'string', description: 'The vendor entity ID.' },
+        ...ACTION_PARAM,
+      },
+      required: ['vendor_id', 'action'],
+    },
+  },
+  {
+    name: 'search_jobs_by_client',
+    description: 'Find all jobs for a specific client by their ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'The client entity ID.' },
+        ...ACTION_PARAM,
+      },
+      required: ['client_id', 'action'],
+    },
+  },
+  {
+    name: 'search_visits_by_client',
+    description: 'Find all visits for a specific client by their ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'The client entity ID.' },
+        ...ACTION_PARAM,
+      },
+      required: ['client_id', 'action'],
+    },
+  },
+  {
+    name: 'search_quotes_by_client',
+    description: 'Find all quotes for a specific client by their ID.',
+    parameters: {
+      type: 'object',
+      properties: {
+        client_id: { type: 'string', description: 'The client entity ID.' },
+        ...ACTION_PARAM,
+      },
+      required: ['client_id', 'action'],
+    },
+  },
+  {
+    name: 'get_upcoming_visits',
+    description: 'Get upcoming visits in the next N days (no specific client — use search_visits_by_client for a known client).',
+    parameters: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', description: 'Days ahead to look (default: 30).' },
+        ...ACTION_PARAM,
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'get_quotes',
+    description: 'Get all quotes (no specific entity — use search_quotes_by_vendor or search_quotes_by_client when an ID is available).',
+    parameters: {
+      type: 'object',
+      properties: {
+        ...ACTION_PARAM,
+      },
+      required: ['action'],
     },
   },
   {
     name: 'submit_tasks',
-    description: 'Submit the final actionable tasks to be added to the ticket. Call this when done with research.',
+    description: 'Signal completion and optionally submit supplementary tasks not covered by the query tools.',
     parameters: {
       type: 'object',
       properties: {
@@ -145,7 +333,7 @@ const TOOLS: ToolDef[] = [
             properties: { description: { type: 'string' } },
             required: ['description'],
           },
-          description: 'Array of tasks to add to the ticket.',
+          description: 'Supplementary tasks only (e.g. "Notify affected clients"). Leave empty if none.',
         },
       },
       required: ['tasks'],
@@ -153,138 +341,139 @@ const TOOLS: ToolDef[] = [
   },
 ];
 
-// ─── Jobber data fetchers ───────────────────────────────────────────────────
+// ─── Mock helper ──────────────────────────────────────────────────────────────
 
 let _mockOverride: boolean | null = null;
 const useMock = () => _mockOverride !== null ? _mockOverride : !hasTokens();
 
-async function searchClients(name: string) {
-  if (useMock()) {
-    const q = name.toLowerCase();
-    return MOCK_CLIENTS.filter((c) => c.name.toLowerCase().includes(q));
-  }
-  const data = await jobberGraphQL<{
-    clients: { nodes: Array<{ id: string; name: string }> };
-  }>(`query SearchClients($search: String) {
-      clients(filter: { searchTerm: $search }) {
-        nodes { id name }
+// ─── Jobber data fetchers ─────────────────────────────────────────────────────
+
+export type VendorVisitNode = RawVisit & {
+  visitStatus?: string;
+  assignedUsers?: { nodes?: Array<{ id: string }> };
+  job: RawJob & { id: string };
+};
+
+export async function fetchVendorVisits(vendorId: string): Promise<VendorVisitNode[]> {
+  const data = await jobberGraphQL<{ visits: { nodes: VendorVisitNode[] } }>(`
+    query GetVendorVisitsAndJobs {
+      visits(first: 50) {
+        nodes {
+          id title startAt visitStatus
+          assignedUsers { nodes { id } }
+          client { id name }
+          property { address { street city } }
+          job { id title jobStatus client { id name } property { address { street city } } }
+        }
       }
-    }`, { search: name });
-  return data.clients.nodes;
+    }
+  `);
+  return data.visits.nodes.filter(
+    (v) => v.assignedUsers?.nodes?.some((u) => u.id === vendorId)
+  );
 }
 
-async function getClientJobs(clientId: string) {
+async function fetchJobsByVendorId(vendorId: string): Promise<JobRecord[]> {
   if (useMock()) {
-    return MOCK_JOBS.filter((j) => j.client.id === clientId);
+    return MOCK_JOBS
+      .filter((j) => j.vendor?.id === vendorId)
+      .map(normalizeJob);
   }
-  const data = await jobberGraphQL<{
-    jobs: { nodes: Array<{ id: string; title: string; jobStatus: string; property?: { address?: { street: string; city: string } } }> };
-  }>(`query GetClientJobs($clientId: EncodedId) {
-      jobs(filter: { clientId: $clientId }) {
-        nodes { id title jobStatus property { address { street city } } }
-      }
+  try {
+    const assigned = await fetchVendorVisits(vendorId);
+    const jobMap = new Map<string, JobRecord>();
+    for (const v of assigned) {
+      if (v.job && !jobMap.has(v.job.id)) jobMap.set(v.job.id, normalizeJob(v.job));
+    }
+    const jobs = Array.from(jobMap.values());
+    logger.info(`[Agent:debug] fetchJobsByVendorId(${vendorId}): ${assigned.length} assigned visits → ${jobs.length} unique jobs`);
+    return jobs;
+  } catch (err) {
+    logger.error(`[Agent:debug] fetchJobsByVendorId failed — Jobber query error:`, err);
+    return [];
+  }
+}
+
+async function fetchVisitsByVendorId(vendorId: string): Promise<VisitRecord[]> {
+  if (useMock()) {
+    return MOCK_VISITS
+      .filter((v) => v.vendor?.id === vendorId)
+      .map(normalizeVisit);
+  }
+  try {
+    const assigned = await fetchVendorVisits(vendorId);
+    logger.info(`[Agent:debug] fetchVisitsByVendorId(${vendorId}): ${assigned.length} assigned visits`);
+    return assigned.map(normalizeVisit);
+  } catch (err) {
+    logger.error(`[Agent:debug] fetchVisitsByVendorId failed — Jobber query error:`, err);
+    return [];
+  }
+}
+
+async function fetchClientJobsById(clientId: string): Promise<JobRecord[]> {
+  if (useMock()) {
+    return MOCK_JOBS
+      .filter((j) => j.client.id === clientId)
+      .map(normalizeJob);
+  }
+  const data = await jobberGraphQL<{ jobs: { nodes: RawJob[] } }>(`
+    query GetClientJobs($clientId: EncodedId) {
+      jobs(filter: { clientId: $clientId }) { nodes { id title jobStatus client { id name } property { address { street city } } } }
     }`, { clientId });
-  return data.jobs.nodes;
+  return data.jobs.nodes.map(normalizeJob);
 }
 
-async function getAllJobs(status?: string) {
+async function fetchQuotesById(vendorId?: string, clientId?: string): Promise<QuoteRecord[]> {
   if (useMock()) {
-    return status ? MOCK_JOBS.filter((j) => j.status === status) : MOCK_JOBS;
+    return MOCK_QUOTES
+      .filter((q) => {
+        if (vendorId) return q.vendor?.id === vendorId;
+        if (clientId) return q.client?.id === clientId;
+        return true;
+      })
+      .map(normalizeQuote);
   }
-  const data = await jobberGraphQL<{
-    jobs: { nodes: Array<{ id: string; title: string; jobStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
-  }>(`query GetAllJobs {
-      jobs { nodes { id title jobStatus client { id name } property { address { street city } } } }
-    }`);
-  return status
-    ? data.jobs.nodes.filter((j) => j.jobStatus.toLowerCase() === status.toLowerCase())
-    : data.jobs.nodes;
+  // Jobber GraphQL: requests/quotes API
+  const data = await jobberGraphQL<{ quotes: { nodes: RawQuote[] } }>(`
+    query GetQuotes { quotes { nodes { id title quoteStatus client { id name } property { address { street city } } } } }`);
+  return data.quotes.nodes
+    .filter((q) => {
+      if (vendorId) return false; // Jobber quotes are client-scoped; vendor filter not applicable
+      if (clientId) return q.client?.id === clientId;
+      return true;
+    })
+    .map(normalizeQuote);
 }
 
-async function getUpcomingVisits(days = 30, clientId?: string) {
+async function fetchUpcomingVisits(days: number, clientId?: string): Promise<VisitRecord[]> {
   if (useMock()) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() + days);
     const today = new Date().toISOString().slice(0, 10);
     const cutoffStr = cutoff.toISOString().slice(0, 10);
-    return MOCK_VISITS.filter((v) => {
-      const inRange = v.scheduledStart >= today && v.scheduledStart <= cutoffStr;
-      const matchClient = clientId ? v.client.id === clientId : true;
-      return inRange && matchClient;
-    });
+    return MOCK_VISITS
+      .filter((v) => {
+        const inRange = v.scheduledStart >= today && v.scheduledStart <= cutoffStr;
+        const matchClient = clientId ? v.client.id === clientId : true;
+        return inRange && matchClient;
+      })
+      .map(normalizeVisit);
   }
   const from = new Date().toISOString();
   const to = new Date(Date.now() + days * 86400000).toISOString();
-  const data = await jobberGraphQL<{
-    visits: { nodes: Array<{ id: string; title: string; startAt: string; visitStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
-  }>(`query GetVisits($from: ISO8601DateTime, $to: ISO8601DateTime) {
+  const data = await jobberGraphQL<{ visits: { nodes: RawVisit[] } }>(`
+    query GetVisits($from: ISO8601DateTime, $to: ISO8601DateTime) {
       visits(filter: { startAt: { gte: $from, lte: $to } }) {
-        nodes { id title startAt visitStatus client { id name } property { address { street city } } }
+        nodes { id startAt visitStatus client { id name } property { address { street city } } job { title } }
       }
     }`, { from, to });
-  const nodes = data.visits.nodes;
-  return clientId ? nodes.filter((v) => v.client?.id === clientId) : nodes;
+  const raw = clientId
+    ? data.visits.nodes.filter((v) => v.client?.id === clientId)
+    : data.visits.nodes;
+  return raw.map(normalizeVisit);
 }
 
-async function searchJobsByVendor(vendorName: string) {
-  if (useMock()) {
-    const q = vendorName.toLowerCase();
-    return MOCK_JOBS.filter((j) => j.vendor?.name?.toLowerCase().includes(q));
-  }
-  // Real Jobber: fetch all jobs and filter client-side (Jobber API has no vendor filter)
-  const data = await jobberGraphQL<{
-    jobs: { nodes: Array<{ id: string; title: string; jobStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
-  }>(`query GetAllJobs {
-      jobs { nodes { id title jobStatus client { id name } property { address { street city } } } }
-    }`);
-  return data.jobs.nodes;
-}
-
-async function searchVisitsByVendor(vendorName: string) {
-  if (useMock()) {
-    const q = vendorName.toLowerCase();
-    return MOCK_VISITS.filter((v) => v.vendor?.name?.toLowerCase().includes(q));
-  }
-  // Real Jobber: fetch all visits and filter client-side
-  const data = await jobberGraphQL<{
-    visits: { nodes: Array<{ id: string; title: string; startAt: string; visitStatus: string; client?: { id: string; name: string }; property?: { address?: { street: string; city: string } } }> };
-  }>(`query GetAllVisits {
-      visits { nodes { id title startAt visitStatus client { id name } property { address { street city } } } }
-    }`);
-  return data.visits.nodes;
-}
-
-// ─── Tool executor ──────────────────────────────────────────────────────────
-
-async function executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
-  try {
-    switch (name) {
-      case 'search_clients':
-        return await searchClients(input.name as string);
-      case 'get_client_jobs':
-        return await getClientJobs(input.client_id as string);
-      case 'get_all_jobs':
-        return await getAllJobs(input.status as string | undefined);
-      case 'get_upcoming_visits':
-        return await getUpcomingVisits(
-          (input.days as number | undefined) ?? 30,
-          input.client_id as string | undefined,
-        );
-      case 'search_jobs_by_vendor':
-        return await searchJobsByVendor(input.vendor_name as string);
-      case 'search_visits_by_vendor':
-        return await searchVisitsByVendor(input.vendor_name as string);
-      default:
-        return { result: 'Unknown tool — skipped.' };
-    }
-  } catch (err) {
-    // Return a neutral message so the LLM does not echo raw errors into notes
-    console.error(`[Agent tool error] ${name}:`, err);
-    return { result: 'Data temporarily unavailable. Continue with available data.' };
-  }
-}
-
-// ─── Public entry ───────────────────────────────────────────────────────────
+// ─── Public entry ─────────────────────────────────────────────────────────────
 
 export async function runTicketAgent(ticketId: string, mockOverride?: boolean): Promise<void> {
   _mockOverride = mockOverride ?? null;
@@ -293,8 +482,6 @@ export async function runTicketAgent(ticketId: string, mockOverride?: boolean): 
     if (!ticket) return;
 
     const config = loadAIConfig();
-
-    // Resolve API key for the selected provider
     const apiKey = (() => {
       if (config.provider === 'anthropic') return env.ANTHROPIC_API_KEY;
       if (config.provider === 'openai')    return env.OPENAI_API_KEY;
@@ -302,23 +489,107 @@ export async function runTicketAgent(ticketId: string, mockOverride?: boolean): 
     })();
 
     if (!apiKey) {
-      console.warn(`[Agent] No API key for provider "${config.provider}" — skipping agent.`);
+      logger.warn(`[Agent] No API key for provider "${config.provider}" — skipping agent.`);
       return;
     }
+
+    // Buffer collects Jobber results server-side; LLM never sees the raw data
+    const buffer: BufferEntry[] = [];
+
+    const executeTool = async (name: string, input: Record<string, unknown>): Promise<unknown> => {
+      const action = (input.action as string) ?? 'review';
+      logger.info(`[Agent:tool] → ${name}`, JSON.stringify(input));
+      try {
+        let result: unknown;
+        switch (name) {
+          case 'search_jobs_by_vendor': {
+            const records = await fetchJobsByVendorId(input.vendor_id as string);
+            buffer.push({ kind: 'jobs', action, records });
+            result = { message: `Found ${records.length} job(s) for vendor.` };
+            break;
+          }
+          case 'search_visits_by_vendor': {
+            const records = await fetchVisitsByVendorId(input.vendor_id as string);
+            buffer.push({ kind: 'visits', action, records });
+            result = { message: `Found ${records.length} visit(s) for vendor.` };
+            break;
+          }
+          case 'search_jobs_by_client': {
+            const records = await fetchClientJobsById(input.client_id as string);
+            buffer.push({ kind: 'jobs', action, records });
+            result = { message: `Found ${records.length} job(s) for client.` };
+            break;
+          }
+          case 'search_visits_by_client': {
+            const records = await fetchUpcomingVisits(30, input.client_id as string);
+            buffer.push({ kind: 'visits', action, records });
+            result = { message: `Found ${records.length} visit(s) for client.` };
+            break;
+          }
+          case 'search_quotes_by_client': {
+            const records = await fetchQuotesById(undefined, input.client_id as string);
+            buffer.push({ kind: 'quotes', action, records });
+            result = { message: `Found ${records.length} quote(s) for client.` };
+            break;
+          }
+          case 'get_upcoming_visits': {
+            const records = await fetchUpcomingVisits((input.days as number | undefined) ?? 30);
+            buffer.push({ kind: 'visits', action, records });
+            result = { message: `Found ${records.length} upcoming visit(s).` };
+            break;
+          }
+          case 'search_quotes_by_vendor': {
+            const records = await fetchQuotesById(input.vendor_id as string, undefined);
+            buffer.push({ kind: 'quotes', action, records });
+            result = { message: `Found ${records.length} quote(s) for vendor.` };
+            break;
+          }
+          case 'get_quotes': {
+            const records = await fetchQuotesById(
+              input.vendor_id as string | undefined,
+              input.client_id as string | undefined,
+            );
+            buffer.push({ kind: 'quotes', action, records });
+            result = { message: `Found ${records.length} quote(s).` };
+            break;
+          }
+          default:
+            result = { message: 'Unknown tool — skipped.' };
+        }
+        logger.info(`[Agent:tool] ← ${name}: ${(result as { message: string }).message}`);
+        return result;
+      } catch (err) {
+        logger.error(`[Agent:tool] ✗ ${name} failed:`, err);
+        return { message: 'Query failed — continuing with available data.' };
+      }
+    };
+
+    const entityHint = (() => {
+      if (!ticket.jobber_entity_type || !ticket.jobber_entity_id) return '';
+      const id = ticket.jobber_entity_id;
+      if (ticket.jobber_entity_type === 'vendor') {
+        return `Linked entity: vendor (ID: ${id})\n→ Required tools: search_jobs_by_vendor(vendor_id="${id}"), search_visits_by_vendor(vendor_id="${id}"), and search_quotes_by_vendor(vendor_id="${id}")`;
+      }
+      if (ticket.jobber_entity_type === 'client') {
+        return `Linked entity: client (ID: ${id})\n→ Required tools: search_jobs_by_client(client_id="${id}"), search_visits_by_client(client_id="${id}"), and search_quotes_by_client(client_id="${id}")`;
+      }
+      return `Linked entity: ${ticket.jobber_entity_type} (ID: ${id})`;
+    })();
 
     const userMessage = [
       `New ticket created:`,
       `Title: ${ticket.title}`,
       ticket.description ? `Description: ${ticket.description}` : '',
       ticket.tags?.length ? `Tags: ${ticket.tags.join(', ')}` : '',
-      ticket.jobber_entity_type
-        ? `Linked Jobber entity: ${ticket.jobber_entity_type}${ticket.jobber_entity_label ? ` "${ticket.jobber_entity_label}"` : ''} (ID: ${ticket.jobber_entity_id ?? 'unknown'})`
-        : '',
+      entityHint,
     ].filter(Boolean).join('\n');
 
     const ERROR_STARTS = ['error', 'sorry', 'i apologize', 'i was unable', 'unable to', 'i encountered', 'i could not', 'could not', 'no action'];
     const ERROR_CONTAINS = ['is not supported', 'permission denied', 'api error', 'not available'];
     let totalTasksCreated = 0;
+
+    logger.info(`[Agent:debug] Starting agent for ticket ${ticketId} (provider: ${config.provider}, model: ${config.model})`);
+    logger.info(`[Agent:debug] User message:\n${userMessage}`);
 
     try {
       await runAgentLoop({
@@ -329,47 +600,60 @@ export async function runTicketAgent(ticketId: string, mockOverride?: boolean): 
         userMessage,
         tools: TOOLS,
         executeTool,
-        onTasks: async (tasks) => {
-          const validTasks = tasks.filter((t) => {
-            const desc = t.description.trim();
-            if (desc.length < 20) return false;
-            const lower = desc.toLowerCase();
-            if (ERROR_STARTS.some((prefix) => lower.startsWith(prefix))) return false;
-            if (ERROR_CONTAINS.some((phrase) => lower.includes(phrase))) return false;
-            return true;
-          });
-          if (validTasks.length === 0) return;
+        onTasks: async (llmTasks) => {
+          // Log buffer summary before generating tasks
+          logger.info(`[Agent:debug] Buffer (${buffer.length} entr${buffer.length === 1 ? 'y' : 'ies'}):`);
+          buffer.forEach((e, i) => logger.info(`[Agent:debug]   [${i}] kind=${e.kind} action=${e.action} count=${e.records.length}`));
 
-          // Deduplicate against existing tasks for this ticket
+          // Generate tasks from buffered Jobber data using templates
+          const bufferTaskDescs = generateTasksFromBuffer(buffer);
+
+          logger.info(`[Agent:debug] LLM supplementary tasks (${llmTasks.length}):`, llmTasks.map((t) => t.description));
+          logger.info(`[Agent:debug] Buffer-generated task descs (${bufferTaskDescs.length}):`, bufferTaskDescs);
+
+          // Accept supplementary tasks from the LLM (e.g. "Notify affected clients")
+          const supplementary = llmTasks
+            .map((t) => t.description.trim())
+            .filter((desc) => {
+              if (desc.length < 10) return false;
+              const lower = desc.toLowerCase();
+              if (ERROR_STARTS.some((prefix) => lower.startsWith(prefix))) return false;
+              if (ERROR_CONTAINS.some((phrase) => lower.includes(phrase))) return false;
+              return true;
+            });
+
+          const allDescs = [...bufferTaskDescs, ...supplementary];
+          if (allDescs.length === 0) return;
+
+          // Deduplicate against existing tasks
           const existing = await TicketTask.find({ ticket_ref: ticketId }).select('description').lean();
           const existingDescs = new Set(existing.map((t) => t.description.trim().toLowerCase()));
-          const newTasks = validTasks.filter((t) => !existingDescs.has(t.description.trim().toLowerCase()));
+          const newDescs = allDescs.filter((d) => !existingDescs.has(d.trim().toLowerCase()));
 
-          if (newTasks.length === 0) {
-            console.log(`[Agent] All ${validTasks.length} task(s) already exist — skipping`);
+          if (newDescs.length === 0) {
+            logger.info(`[Agent] All ${allDescs.length} task(s) already exist — skipping`);
             return;
           }
 
           await TicketTask.insertMany(
-            newTasks.map((t) => ({
+            newDescs.map((description) => ({
               ticket_ref: ticketId,
-              description: t.description,
+              description,
               agent_generated: true,
             }))
           );
-          totalTasksCreated += newTasks.length;
-          const skipped = validTasks.length - newTasks.length;
-          console.log(`[Agent] Created ${newTasks.length} task(s) for ticket ${ticketId}${skipped ? `, skipped ${skipped} duplicate(s)` : ''}`);
+          totalTasksCreated += newDescs.length;
+          const skipped = allDescs.length - newDescs.length;
+          logger.info(`[Agent] Created ${newDescs.length} task(s) for ticket ${ticketId}${skipped ? `, skipped ${skipped} duplicate(s)` : ''}`);
         },
       });
     } catch (err) {
-      console.error('[Agent] LLM error:', err);
+      logger.error('[Agent] LLM error:', err);
       return;
     }
 
-    console.log(`[Agent] Done. Total tasks created: ${totalTasksCreated} for ticket ${ticketId}`);
+    logger.info(`[Agent] Done. Total tasks created: ${totalTasksCreated} for ticket ${ticketId}`);
   } catch (err) {
-    console.error('[Agent] Error:', err);
+    logger.error('[Agent] Error:', err);
   }
 }
-

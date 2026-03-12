@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { env } from '../config/env';
 import { authenticate } from '../middleware/authenticate';
 import { jobberGraphQL, hasTokens, saveTokens } from '../services/jobberClient';
-import { MOCK_CLIENTS, MOCK_LEADS, MOCK_VENDORS, MOCK_JOBS, MOCK_VISITS } from '../lib/mockJobberData';
+import { MOCK_CLIENTS, MOCK_LEADS, MOCK_VENDORS, MOCK_JOBS, MOCK_VISITS, MOCK_QUOTES } from '../lib/mockJobberData';
+import { fetchVendorVisits } from '../services/ticketAgent';
 
 const router = Router();
 
@@ -70,7 +71,7 @@ router.get('/api/jobber/status', (req: Request, res: Response) => {
 
 router.get('/api/jobber/clients', async (req: Request, res: Response) => {
   if (!hasTokens()) {
-    res.status(400).json({ error: 'Jobber not connected' });
+    res.json(MOCK_CLIENTS);
     return;
   }
 
@@ -152,9 +153,61 @@ router.get('/api/jobber/leads', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/api/jobber/properties', async (req: Request, res: Response) => {
+  if (!hasTokens()) {
+    // Derive unique properties from mock jobs
+    const seen = new Set<string>();
+    const props = MOCK_JOBS
+      .filter((j) => j.property)
+      .map((j) => ({
+        id: `${j.id}_prop`,
+        street: j.property!.street,
+        city: j.property!.city,
+        province: 'FL',
+        postalCode: '32501',
+        client: j.client,
+      }))
+      .filter((p) => {
+        const key = `${p.street}|${p.client.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    res.json(props);
+    return;
+  }
+
+  try {
+    const data = await jobberGraphQL<{ properties: { nodes: unknown[] } }>(`
+      query GetProperties {
+        properties(first: 100) {
+          nodes {
+            id
+            address { street city province postalCode }
+            client { id name }
+          }
+        }
+      }
+    `);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nodes = (data.properties?.nodes ?? []).map((p: any) => ({
+      id: p.id,
+      street: p.address?.street ?? '',
+      city: p.address?.city ?? '',
+      province: p.address?.province ?? '',
+      postalCode: p.address?.postalCode ?? '',
+      client: p.client,
+    }));
+    res.json(nodes);
+  } catch (err) {
+    console.error('[Jobber] properties query failed:', err);
+    res.status(500).json({ error: 'Failed to fetch properties' });
+  }
+});
+
 router.get('/api/jobber/visits', async (req: Request, res: Response) => {
   if (!hasTokens()) {
-    res.status(400).json({ error: 'Jobber not connected' });
+    res.json(MOCK_VISITS.map((v) => ({ ...v, property: { id: `${v.id}_prop`, ...v.property } })));
     return;
   }
 
@@ -185,7 +238,11 @@ router.get('/api/jobber/visits', async (req: Request, res: Response) => {
 
 router.get('/api/jobber/jobs', async (req: Request, res: Response) => {
   if (!hasTokens()) {
-    res.status(400).json({ error: 'Jobber not connected' });
+    res.json(MOCK_JOBS.map((j) => ({
+      ...j,
+      jobStatus: j.status,
+      property: j.property ? { id: `${j.id}_prop`, ...j.property } : undefined,
+    })));
     return;
   }
 
@@ -318,32 +375,25 @@ router.get('/api/jobber/entity', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/api/jobber/vendors', async (req: Request, res: Response) => {
-  if (!hasTokens()) {
-    res.json(MOCK_VENDORS);
-    return;
-  }
-
+async function fetchVendors() {
   const data = await jobberGraphQL<{ users: { nodes: { id: string; name: { full: string }; email: { raw: string } }[] } }>(`
     query GetUsers {
-      users(first: 50) {
-        nodes {
-          id
-          name { full }
-          email { raw }
-        }
-      }
+      users(first: 50) { nodes { id name { full } email { raw } } }
     }
   `);
-
-  // Map Jobber users to the vendor shape the frontend expects
-  const vendors = (data.users?.nodes ?? []).map((u) => ({
+  return (data.users?.nodes ?? []).map((u) => ({
     id: u.id,
     name: u.name?.full ?? u.id,
     email: u.email?.raw,
   }));
+}
 
-  res.json(vendors);
+router.get('/api/jobber/vendors', async (_req: Request, res: Response) => {
+  if (!hasTokens()) {
+    res.json(MOCK_VENDORS);
+    return;
+  }
+  res.json(await fetchVendors());
 });
 
 router.get('/api/jobber/test-query', async (req: Request, res: Response) => {
@@ -391,6 +441,58 @@ router.get('/api/jobber/test-query', async (req: Request, res: Response) => {
       { type: 'Vendor/Team', data: userData },
     ],
   });
+});
+
+// ─── Explorer: live-only vendors list (no mock fallback) ───────────────────
+
+router.get('/api/jobber/explorer/vendors', async (_req: Request, res: Response) => {
+  if (!hasTokens()) {
+    res.status(503).json({ error: 'Jobber not connected. Connect Jobber in Settings to use the Explorer.' });
+    return;
+  }
+  res.json(await fetchVendors());
+});
+
+// ─── Explorer: fetch all data for a vendor ─────────────────────────────────
+
+router.get('/api/jobber/explorer/vendor', async (req: Request, res: Response) => {
+  const { id } = req.query as { id?: string };
+  if (!id) {
+    res.status(400).json({ error: 'id is required' });
+    return;
+  }
+
+  if (!hasTokens()) {
+    res.status(503).json({ error: 'Jobber not connected. Connect Jobber in Settings to use the Explorer.' });
+    return;
+  }
+
+  try {
+    const assigned = await fetchVendorVisits(id);
+
+    const jobMap = new Map<string, (typeof assigned)[0]['job']>();
+    for (const v of assigned) {
+      if (v.job && !jobMap.has(v.job.id)) jobMap.set(v.job.id, v.job);
+    }
+
+    res.json({
+      mock: false,
+      jobs: Array.from(jobMap.values()),
+      visits: assigned.map((v) => ({
+        id: v.id,
+        title: v.title ?? v.job?.title ?? 'Visit',
+        startAt: v.startAt,
+        visitStatus: v.visitStatus,
+        client: v.client,
+        property: v.property,
+      })),
+      quotes: [], // Quotes have no direct vendor association in Jobber API
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error('[Explorer] vendor query failed:', detail);
+    res.status(500).json({ error: 'Query failed', detail });
+  }
 });
 
 router.post('/api/jobber/sync', async (req: Request, res: Response) => {

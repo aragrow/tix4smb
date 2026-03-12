@@ -128,11 +128,12 @@ export default function TicketDetail() {
   const [jobberLabelDraft, setJobberLabelDraft] = useState('');
   const [agentState, setAgentState] = useState<'idle' | 'running' | 'done'>('idle');
   const agentNoteBaselineRef = useRef<number | null>(null);
+  const agentPollCountRef = useRef<number>(0);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
 
-  const { data: tasks } = useQuery<TicketTask[]>({
+  const { data: tasks, dataUpdatedAt } = useQuery<TicketTask[]>({
     queryKey: ['tasks', id],
     queryFn: () => api.get<TicketTask[]>(`/api/tickets/${id!}/tasks`).then((r) => r.data),
     enabled: Boolean(id),
@@ -143,11 +144,19 @@ export default function TicketDetail() {
     if (agentState !== 'running') return;
     const baseline = agentNoteBaselineRef.current ?? 0;
     if ((tasks?.length ?? 0) > baseline) {
+      agentPollCountRef.current = 0;
       setAgentState('done');
       const t = setTimeout(() => setAgentState('idle'), 3000);
       return () => clearTimeout(t);
     }
-  }, [agentState, tasks?.length]);
+    // Stop after 15 polls (~30s) with no new tasks — agent likely finished with 0 results.
+    // Use dataUpdatedAt (not tasks) so this fires on every fetch even when data is unchanged.
+    agentPollCountRef.current += 1;
+    if (agentPollCountRef.current >= 15) {
+      agentPollCountRef.current = 0;
+      setAgentState('idle');
+    }
+  }, [agentState, dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: ticket, isLoading } = useQuery<Ticket>({
     queryKey: ['ticket', id],
@@ -193,6 +202,7 @@ export default function TicketDetail() {
     mutationFn: () => api.post(`/api/tickets/${id!}/run-agent`, { mock: isMockJobberEnabled() }),
     onMutate: () => {
       agentNoteBaselineRef.current = tasks?.length ?? 0;
+      agentPollCountRef.current = 0;
       setAgentState('running');
     },
     onError: () => setAgentState('idle'),
@@ -261,60 +271,22 @@ export default function TicketDetail() {
       </div>
 
       {/* Header */}
-      <div className="space-y-4">
-        <h2 className="text-2xl font-bold">{ticket.title}</h2>
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Status</span>
-            <Select
-              value={ticket.status}
-              onValueChange={(v) => updateTicket.mutate({ status: v as TicketStatus })}
-            >
-              <SelectTrigger className="h-7 w-auto gap-1">
-                <StatusBadge status={ticket.status} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="open">Open</SelectItem>
-                <SelectItem value="in_progress">In Progress</SelectItem>
-                <SelectItem value="resolved">Resolved</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Priority</span>
-            <Select
-              value={ticket.priority}
-              onValueChange={(v) => updateTicket.mutate({ priority: v as TicketPriority })}
-              disabled={!editable}
-            >
-              <SelectTrigger className="h-7 w-auto gap-1">
-                <PriorityBadge priority={ticket.priority} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="urgent">Urgent</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex-1" />
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive-foreground hover:bg-destructive/20"
-            onClick={() => {
-              if (confirm('Delete this ticket?')) deleteTicket.mutate();
-            }}
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <h1>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Title</p>
+          <span className="text-2xl font-bold">{ticket.title}</span>
+        </h1>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive-foreground hover:bg-destructive/20 flex-shrink-0"
+          onClick={() => {
+            if (confirm('Delete this ticket?')) deleteTicket.mutate();
+          }}
+        >
+          <Trash2 className="h-4 w-4 mr-1" />
+          Delete
+        </Button>
       </div>
 
       {/* Meta */}
@@ -418,8 +390,43 @@ export default function TicketDetail() {
               </div>
             )}
           </div>
-          {/* Right: dates stacked */}
+          {/* Right: status, priority, dates */}
           <div className="flex flex-col gap-2 pl-6">
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Status</p>
+              <Select
+                value={ticket.status}
+                onValueChange={(v) => updateTicket.mutate({ status: v as TicketStatus })}
+              >
+                <SelectTrigger className="h-7 w-auto gap-1">
+                  <StatusBadge status={ticket.status} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="resolved">Resolved</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Priority</p>
+              <Select
+                value={ticket.priority}
+                onValueChange={(v) => updateTicket.mutate({ priority: v as TicketPriority })}
+                disabled={!editable}
+              >
+                <SelectTrigger className="h-7 w-auto gap-1">
+                  <PriorityBadge priority={ticket.priority} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <p className="text-muted-foreground text-xs mb-1">Created</p>
               <p>{new Date(ticket.created_at).toLocaleString()}</p>
@@ -504,7 +511,13 @@ export default function TicketDetail() {
 
       {/* Tasks */}
       <div className="border-t pt-8">
-        <TaskList ticketId={ticket._id} ticketStatus={ticket.status} agentRunning={agentState === 'running'} />
+        <TaskList
+          ticketId={ticket._id}
+          ticketStatus={ticket.status}
+          agentRunning={agentState === 'running'}
+          ticketEntityType={ticket.jobber_entity_type}
+          ticketEntityId={ticket.jobber_entity_id}
+        />
       </div>
 
       {/* Notes */}

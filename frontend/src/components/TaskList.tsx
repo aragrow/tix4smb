@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { JobberEntityPicker } from '@/components/JobberEntityPicker';
 import {
-  Trash2, Plus, Bot, StickyNote, Check, X,
+  Trash2, Plus, Bot, User, StickyNote, Check, X,
   CheckCircle2, Clock, Bell, FileText, Send, CalendarClock,
 } from 'lucide-react';
 import { BulkMessageModal } from '@/components/BulkMessageModal';
@@ -17,16 +17,52 @@ interface TaskListProps {
   ticketId: string;
   ticketStatus: TicketStatus;
   agentRunning?: boolean;
+  ticketEntityType?: JobberEntityType;
+  ticketEntityId?: string;
 }
 
 type TaskBulkAction = 'delete' | 'status' | 'notify';
 
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  pending: 'Pending',
-  in_progress: 'In Progress',
-  done: 'Done',
-  sent: 'Sent',
-};
+// ─── Task grouping ────────────────────────────────────────────────────────────
+
+type GroupedTask =
+  | { kind: 'standalone'; task: TicketTask }
+  | { kind: 'job'; task: TicketTask; visits: TicketTask[] };
+
+// Match: verb + entity type + title + optional suffix (at/for/on)
+// Key for grouping: verb + everything after the quoted title (strips date from visits)
+const JOB_RE   = /^(cancel|reschedule|rebid|review|follow up on) job "[^"]+"(.*)/i;
+const VISIT_RE = /^(cancel|reschedule|rebid|review|follow up on) visit "[^"]+"(?:\s+on\s+\S+)?(.*)/i;
+
+function groupTasks(tasks: TicketTask[]): GroupedTask[] {
+  const jobMap = new Map<string, { task: TicketTask; visits: TicketTask[] }>();
+  const result: GroupedTask[] = [];
+
+  for (const task of tasks) {
+    const m = task.description.match(JOB_RE);
+    if (m) {
+      const key = `${m[1].toLowerCase()}|${m[2].trim().toLowerCase()}`;
+      const entry = { task, visits: [] as TicketTask[] };
+      jobMap.set(key, entry);
+      result.push({ kind: 'job', ...entry });
+    }
+  }
+
+  for (const task of tasks) {
+    const m = task.description.match(VISIT_RE);
+    if (m) {
+      const key = `${m[1].toLowerCase()}|${m[2].trim().toLowerCase()}`;
+      const parent = jobMap.get(key);
+      if (parent) { parent.visits.push(task); }
+      else { result.push({ kind: 'standalone', task }); }
+    } else if (!task.description.match(JOB_RE)) {
+      result.push({ kind: 'standalone', task });
+    }
+  }
+
+  return result;
+}
+
 
 const STATUS_CLASSES: Record<TaskStatus, string> = {
   pending: 'bg-muted text-muted-foreground',
@@ -114,14 +150,27 @@ function TaskItem({
               <span className="capitalize">{task.jobber_entity_type}</span>: {task.jobber_entity_label}
             </p>
           )}
+          {!task.agent_generated && task.jobber_entity_type && (
+            <span
+              className="inline-block text-xs text-muted-foreground/50 border border-dashed border-muted-foreground/25 px-1.5 py-0.5 rounded cursor-default"
+              title={`Action for ${task.jobber_entity_type} — coming soon`}
+            >
+              Action: coming soon
+            </span>
+          )}
         </div>
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
-          {task.agent_generated && (
+          {task.agent_generated ? (
             <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
               <Bot className="h-3 w-3" />
               AI
+            </span>
+          ) : (
+            <span className="text-xs bg-slate-500/15 text-slate-500 px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+              <User className="h-3 w-3" />
+              Human
             </span>
           )}
           <Select
@@ -209,7 +258,7 @@ function TaskItem({
   );
 }
 
-export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps) {
+export function TaskList({ ticketId, ticketStatus, agentRunning, ticketEntityType, ticketEntityId }: TaskListProps) {
   const [showForm, setShowForm] = useState(false);
   const [description, setDescription] = useState('');
   const [entityType, setEntityType] = useState<JobberEntityType | ''>('');
@@ -281,7 +330,7 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (!description.trim()) return;
     addTask.mutate({
@@ -436,17 +485,49 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
         <p className="text-sm text-muted-foreground">No tasks yet.</p>
       ) : (
         <div className="space-y-2">
-          {tasks.map((task) => (
-            <TaskItem
-              key={task._id}
-              task={task}
-              ticketId={ticketId}
-              editable={editable}
-              selected={selectedIds.has(task._id)}
-              onSelect={(checked) => toggleOne(task._id, checked)}
-              onDeleted={(id) => setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; })}
-            />
-          ))}
+          {groupTasks(tasks).map((group) => {
+            const onDeleted = (id: string) => setSelectedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+            if (group.kind === 'standalone') {
+              return (
+                <TaskItem
+                  key={group.task._id}
+                  task={group.task}
+                  ticketId={ticketId}
+                  editable={editable}
+                  selected={selectedIds.has(group.task._id)}
+                  onSelect={(checked) => toggleOne(group.task._id, checked)}
+                  onDeleted={onDeleted}
+                />
+              );
+            }
+            return (
+              <div key={group.task._id} className="space-y-1">
+                <TaskItem
+                  task={group.task}
+                  ticketId={ticketId}
+                  editable={editable}
+                  selected={selectedIds.has(group.task._id)}
+                  onSelect={(checked) => toggleOne(group.task._id, checked)}
+                  onDeleted={onDeleted}
+                />
+                {group.visits.length > 0 && (
+                  <div className="ml-4 pl-3 border-l-2 border-muted space-y-1">
+                    {group.visits.map((v) => (
+                      <TaskItem
+                        key={v._id}
+                        task={v}
+                        ticketId={ticketId}
+                        editable={editable}
+                        selected={selectedIds.has(v._id)}
+                        onSelect={(checked) => toggleOne(v._id, checked)}
+                        onDeleted={onDeleted}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -467,6 +548,8 @@ export function TaskList({ ticketId, ticketStatus, agentRunning }: TaskListProps
               onTypeChange={setEntityType}
               onIdChange={setEntityId}
               onLabelChange={setEntityLabel}
+              ticketEntityType={ticketEntityType}
+              ticketEntityId={ticketEntityId}
             />
           </div>
           <div className="flex gap-2">
