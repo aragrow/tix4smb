@@ -5,7 +5,9 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import passport from 'passport';
+import morgan from 'morgan';
 import { env } from './config/env';
+import { logger } from './lib/logger';
 import { globalLimiter } from './middleware/rateLimiter';
 import authRouter from './routes/auth';
 import ticketsRouter from './routes/tickets';
@@ -24,6 +26,11 @@ app.use(
     credentials: true,
   })
 );
+
+// ─── HTTP request logging ─────────────────────────────────────────
+app.use(morgan('[:date[iso]] :method :url :status :res[content-length]b - :response-time ms', {
+  stream: { write: (msg) => logger.info(msg.trim()) },
+}));
 
 // ─── Webhooks need raw body (before express.json) ─────────────────
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
@@ -60,7 +67,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // ─── Global error handler ─────────────────────────────────────────
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('[Error]', err.message);
+  logger.error('[Error]', err.message);
   if (env.NODE_ENV === 'development') {
     res.status(500).json({ error: err.message, stack: err.stack });
   } else {

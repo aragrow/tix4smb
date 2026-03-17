@@ -95,6 +95,8 @@ interface JobberEntityPickerProps {
   onTypeChange: (type: JobberEntityType | '') => void;
   onIdChange: (id: string) => void;
   onLabelChange?: (label: string) => void;
+  ticketEntityType?: JobberEntityType;
+  ticketEntityId?: string;
 }
 
 export function JobberEntityPicker({
@@ -103,8 +105,24 @@ export function JobberEntityPicker({
   onTypeChange,
   onIdChange,
   onLabelChange,
+  ticketEntityType,
+  ticketEntityId,
 }: JobberEntityPickerProps) {
   const useMock = isMockJobberEnabled();
+
+  const allowedTypes: JobberEntityType[] =
+    ticketEntityType === 'vendor' ? ['job', 'visit'] :
+    ticketEntityType === 'client' ? ['property', 'job', 'visit'] :
+    ['client', 'property', 'job', 'visit', 'vendor'];
+
+  useEffect(() => {
+    if (entityType && !allowedTypes.includes(entityType as JobberEntityType)) {
+      onTypeChange('');
+      onIdChange('');
+      onLabelChange?.('');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticketEntityType]);
 
   const { data: clients = [] } = useQuery<JobberClient[]>({
     queryKey: ['jobber-clients', useMock],
@@ -156,19 +174,39 @@ export function JobberEntityPicker({
     onLabelChange?.(label);
   };
 
+  const filteredProperties = ticketEntityId && ticketEntityType === 'client'
+    ? properties.filter((p) => p.client.id === ticketEntityId)
+    : properties;
+
+  const filteredJobs = ticketEntityId
+    ? ticketEntityType === 'client'
+      ? jobs.filter((j) => j.client?.id === ticketEntityId)
+      : ticketEntityType === 'vendor'
+        ? jobs.filter((j) => j.vendor?.id === ticketEntityId)
+        : jobs
+    : jobs;
+
+  const filteredVisits = ticketEntityId
+    ? ticketEntityType === 'client'
+      ? visits.filter((v) => v.client.id === ticketEntityId)
+      : ticketEntityType === 'vendor'
+        ? visits.filter((v) => v.vendor?.id === ticketEntityId)
+        : visits
+    : visits;
+
   const clientOptions = clients.map((c) => ({ value: c.id, label: c.name }));
 
-  const propertyOptions = properties.map((p) => ({
+  const propertyOptions = filteredProperties.map((p) => ({
     value: p.id,
     label: `${p.street}, ${p.city} — ${p.client.name}`,
   }));
 
-  const jobOptions = jobs.map((j) => ({
+  const jobOptions = filteredJobs.map((j) => ({
     value: j.id,
     label: `${j.title} — ${j.client?.name ?? ''}${j.property ? ` · ${j.property.street}` : ''}`,
   }));
 
-  const visitOptions = visits.map((v) => ({
+  const visitOptions = filteredVisits.map((v) => ({
     value: v.id,
     label: `${v.scheduledStart} · ${v.title} — ${v.property.street}, ${v.property.city}`,
   }));
@@ -193,11 +231,11 @@ export function JobberEntityPicker({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">None</SelectItem>
-          <SelectItem value="client">Client</SelectItem>
-          <SelectItem value="property">Property</SelectItem>
-          <SelectItem value="job">Job</SelectItem>
-          <SelectItem value="visit">Visit</SelectItem>
-          <SelectItem value="vendor">Vendor</SelectItem>
+          {allowedTypes.includes('client') && <SelectItem value="client">Client</SelectItem>}
+          {allowedTypes.includes('property') && <SelectItem value="property">Property</SelectItem>}
+          {allowedTypes.includes('job') && <SelectItem value="job">Job</SelectItem>}
+          {allowedTypes.includes('visit') && <SelectItem value="visit">Visit</SelectItem>}
+          {allowedTypes.includes('vendor') && <SelectItem value="vendor">Vendor</SelectItem>}
         </SelectContent>
       </Select>
 

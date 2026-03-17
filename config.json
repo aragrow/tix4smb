@@ -14,5 +14,19 @@
     "marathon fl",
     "tavernier fl",
     "big pine key fl"
+  ],
+  "name_exclusion": [
+    "pool",
+    "landscape",
+    "pest",
+    "pet",
+    "exterminator",
+    "management",
+    "air",
+    "restoration",
+    "termite",
+    "detail",
+    "gutter",
+    "laundry"
   ]
 }

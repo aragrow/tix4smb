@@ -12,17 +12,25 @@ while true; do
   echo "║  2) Stop                     ║"
   echo "║  3) Restart                  ║"
   echo "║  4) Logs                     ║"
-  echo "║  5) Exit                     ║"
+  echo "╠══════════════════════════════╣"
+  echo "║  5) Scraper — Full run       ║"
+  echo "║  6) Scraper — Quick test     ║"
+  echo "║  7) Export GHL CSV only      ║"
+  echo "╠══════════════════════════════╣"
+  echo "║  8) Exit                     ║"
   echo "╚══════════════════════════════╝"
   echo ""
-  read -rp "Choose [1-5]: " choice
+  read -rp "Choose [1-8]: " choice
 
   case "$choice" in
     1) "$DEV" start ;;
     2) "$DEV" stop ;;
     3) "$DEV" restart ;;
     4) "$DEV" logs ;;
-    5) echo "Bye."; exit 0 ;;
+    5) cd "$ROOT" && uv run run_all.py config.json ;;
+    6) cd "$ROOT" && uv run run_all.py config-test.json ;;
+    7) cd "$ROOT" && uv run csv_export.py ;;
+    8) echo "Bye."; exit 0 ;;
     *) echo "Invalid option." ;;
   esac
 

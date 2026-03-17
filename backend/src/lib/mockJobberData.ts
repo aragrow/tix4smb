@@ -147,3 +147,14 @@ export const MOCK_VISITS = [
   { id: 'v47', title: 'Daily Office Clean Ste 200',scheduledStart: d(1),   status: 'scheduled',   client: { id: 'c25', name: 'Emerald Coast Offices' },  property: { street: '2100 N Palafox St Ste 200', city: 'Pensacola' },       vendor: V('vd05','Bay Clean Team') },
   { id: 'v48', title: 'Weekly Common Area Clean',  scheduledStart: d(3),   status: 'scheduled',   client: { id: 'c25', name: 'Emerald Coast Offices' },  property: { street: '800 W Garden St Ste 300',   city: 'Pensacola' },       vendor: V('vd05','Bay Clean Team') },
 ];
+
+export const MOCK_QUOTES = [
+  { id: 'q01', title: 'Weekly Residential Clean Quote',  quoteStatus: 'draft',     client: { id: 'c01', name: 'Carmen Martinez' },         property: { street: '142 Magnolia Blvd',    city: 'Pensacola' },       vendor: V('vd01','Maria Santos') },
+  { id: 'q02', title: 'Deep Clean Quote',                quoteStatus: 'sent',      client: { id: 'c02', name: 'Robert & Linda Thompson' }, property: { street: '2310 Bayshore Ave',     city: 'Pensacola' },       vendor: V('vd02','Gulf Coast Cleaners LLC') },
+  { id: 'q03', title: 'Vacation Rental Turnover Quote',  quoteStatus: 'approved',  client: { id: 'c04', name: 'Priya Patel' },            property: { street: '33 Harbor View Dr',     city: 'Pensacola Beach' }, vendor: V('vd03','Sunshine Pro Clean') },
+  { id: 'q04', title: 'HOA Common Area Quote',           quoteStatus: 'draft',     client: { id: 'c14', name: 'Sunrise Villas HOA' },     property: { street: '1 Sunrise Villas Clubhouse', city: 'Gulf Breeze' }, vendor: V('vd04','Emerald Clean Services') },
+  { id: 'q05', title: 'Office Building Daily Clean',     quoteStatus: 'sent',      client: { id: 'c25', name: 'Emerald Coast Offices' },  property: { street: '2100 N Palafox St',     city: 'Pensacola' },       vendor: V('vd05','Bay Clean Team') },
+  { id: 'q06', title: 'Monthly Deep Clean Quote',        quoteStatus: 'draft',     client: { id: 'c18', name: 'Jennifer Lee' },           property: { street: '1700 E Moreno St',      city: 'Pensacola' },       vendor: V('vd07','Pristine Clean Co.') },
+  { id: 'q07', title: 'Rental Unit Turnover Quote',      quoteStatus: 'sent',      client: { id: 'c20', name: 'Blue Water Rentals LLC' }, property: { street: '12 Gulf Shore Dr',      city: 'Destin' },          vendor: V('vd08','Gulf Breeze Services') },
+  { id: 'q08', title: 'Bi-Weekly Residential Quote',     quoteStatus: 'draft',     client: { id: 'c17', name: 'David White' },            property: { street: '99 Whisper Pines Dr',   city: 'Milton' },          vendor: V('vd06','Coastal Pro Clean') },
+];

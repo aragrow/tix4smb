@@ -101,8 +101,15 @@ export async function jobberGraphQL<T = unknown>(
 
     if (!res.ok) throw new Error(`Jobber API error: ${res.status} ${await res.text()}`);
 
-    const json = (await res.json()) as { data: T; errors?: unknown[] };
-    if (json.errors?.length) throw new Error(JSON.stringify(json.errors));
+    const json = (await res.json()) as { data: T; errors?: Array<{ message?: string; extensions?: { code?: string } }> };
+    if (json.errors?.length) {
+      const isThrottled = json.errors.some(e => e.extensions?.code === 'THROTTLED');
+      if (isThrottled && !isRetry) {
+        await new Promise(r => setTimeout(r, 10000));
+        return doRequest(true);
+      }
+      throw new Error(JSON.stringify(json.errors));
+    }
     return json.data;
   };
 

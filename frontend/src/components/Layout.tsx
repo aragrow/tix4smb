@@ -3,12 +3,13 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import api from '@/api/client';
 import { useAuth } from '@/hooks/useAuth';
-import { LayoutDashboard, Ticket, Settings, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Ticket, Settings, LogOut, Menu, X, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/tickets', icon: Ticket, label: 'Tickets' },
+  { to: '/explorer', icon: FlaskConical, label: 'Explorer' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

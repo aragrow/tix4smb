@@ -1,10 +1,12 @@
 import asyncio
 import json
 import csv
+import random
 import re
 import sys
 from pathlib import Path
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 
 JSON_DIR = Path("json")
 
@@ -18,13 +20,54 @@ def location_slug(location: str) -> str:
     return re.sub(r"\s+", "-", location.strip().lower())
 
 
+def is_excluded(name: str, exclusions: list[str]) -> bool:
+    name_lower = name.lower()
+    return any(term.lower() in name_lower for term in exclusions)
+
+
+def format_phone_e164(phone: str) -> str:
+    if not phone or phone == "N/A":
+        return ""
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return phone
+
+
+def split_address(address: str) -> tuple[str, str, str, str, str]:
+    """Split a Google Maps address into (address1, city, state, postal_code, country)."""
+    if not address:
+        return "", "", "", "", ""
+    parts = [p.strip() for p in address.split(",")]
+    address1    = parts[0] if len(parts) > 0 else ""
+    city        = parts[1] if len(parts) > 1 else ""
+    state_zip   = parts[2].strip() if len(parts) > 2 else ""
+    country_raw = parts[3].strip() if len(parts) > 3 else ""
+    sz = state_zip.split()
+    state       = sz[0] if sz else ""
+    postal_code = sz[1] if len(sz) > 1 else ""
+    country = "United States" if country_raw.upper() in ("USA", "US", "UNITED STATES") else country_raw
+    return address1, city, state, postal_code, country
+
+
 async def scrape_vendors(url: str) -> list[dict]:
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+        )
         page = await browser.new_page()
+        await stealth_async(page)
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-        await page.wait_for_selector('[role="feed"]', timeout=15000)
+        try:
+            await page.wait_for_selector('[role="feed"]', timeout=30000)
+        except Exception:
+            print("  Warning: no results feed found (possible anti-bot / no results) — skipping")
+            await browser.close()
+            return []
 
         feed = page.locator('[role="feed"]')
         for _ in range(5):
@@ -71,88 +114,32 @@ async def scrape_vendors(url: str) -> list[dict]:
         return results
 
 
-async def enrich_vendor(page, vendor: dict) -> dict:
-    query = vendor["name"]
-    if vendor["phone"] != "N/A":
-        query += f" {vendor['phone']}"
-    url = "https://www.google.com/maps/search/" + query.replace(" ", "+")
-
-    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    await page.wait_for_timeout(2000)
-
-    # If a feed appears, click the first result
-    first_card = await page.query_selector('[role="feed"] > div')
-    if first_card:
-        await first_card.click()
-        await page.wait_for_timeout(2000)
-
-    # Website
-    website_el = await page.query_selector('a[data-item-id="authority"]')
-    vendor["website"] = await website_el.get_attribute("href") if website_el else None
-
-    # Address
-    addr_el = await page.query_selector('button[data-item-id="address"]')
-    if addr_el:
-        label = await addr_el.get_attribute("aria-label") or ""
-        vendor["address"] = label.replace("Address:", "").strip() or None
-    else:
-        vendor["address"] = None
-
-    # Rating
-    rating_el = await page.query_selector('[aria-label*=" stars"]')
-    if rating_el:
-        label = await rating_el.get_attribute("aria-label") or ""
-        m = re.search(r"([\d.]+)\s+stars?", label)
-        vendor["rating"] = m.group(1) if m else None
-    else:
-        vendor["rating"] = None
-
-    # Contact person (best-effort)
-    contact_el = await page.query_selector('button[data-item-id="owner"], [aria-label*="Owner"]')
-    if contact_el:
-        vendor["contact"] = (await contact_el.inner_text()).strip() or None
-    else:
-        vendor["contact"] = None
-
-    return vendor
-
-
-async def enrich_vendors(vendors: list[dict]) -> list[dict]:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        for i, vendor in enumerate(vendors):
-            print(f"  [{i+1}/{len(vendors)}] {vendor['name']}")
-            try:
-                vendors[i] = await enrich_vendor(page, vendor)
-                website = vendor.get("website") or "-"
-                address = vendor.get("address") or "-"
-                rating = vendor.get("rating") or "-"
-                print(f"    website={website}  address={address}  rating={rating}")
-            except Exception as e:
-                print(f"    Error: {e}")
-                vendors[i].setdefault("website", None)
-                vendors[i].setdefault("address", None)
-                vendors[i].setdefault("rating", None)
-                vendors[i].setdefault("contact", None)
-
-        await browser.close()
-    return vendors
-
-
 def combine_vendors(output_files: list[str]) -> list[dict]:
+    # Merge current-run files with any previously saved service files in json/
+    # Exclude v2 files (belong to scraper2) and both combined outputs
+    all_files = {str(f) for f in output_files}
+    for f in JSON_DIR.glob("*.json"):
+        if not f.name.endswith("-v2.json") and f.name not in ("vendors-combined.json", "vendors-combined-v2.json", "vendors-combined-ghl.json"):
+            all_files.add(str(f))
+
     vendors = {}
-    for fname in output_files:
+    for fname in all_files:
         with open(fname) as f:
             data = json.load(f)[0]
-        service = data["service"]
+        service  = data["service"]
         location = data["location"]
 
         for v in data["vendors"]:
             key = v["phone"] if v["phone"] != "N/A" else v["name"].lower().strip()
             if key not in vendors:
-                vendors[key] = {"name": v["name"], "phone": v["phone"], "address": v.get("address"), "prospect_vendor": 1, "services": [], "locations": []}
+                vendors[key] = {
+                    "name": v["name"],
+                    "phone": v["phone"],
+                    "address": v.get("address"),
+                    "vendor_status": "prospect",
+                    "services": [],
+                    "locations": [],
+                }
             if not vendors[key].get("address") and v.get("address"):
                 vendors[key]["address"] = v["address"]
             if service not in vendors[key]["services"]:
@@ -167,16 +154,24 @@ def save_outputs(combined: list[dict]):
     with open(JSON_DIR / "vendors-combined.json", "w") as f:
         json.dump(combined, f, indent=2)
 
+    fieldnames = ["Company Name", "Phone", "Address1", "City", "State", "Postal Code",
+                  "Country", "Vendor Status", "Tags", "Contact Source"]
     with open(JSON_DIR / "vendors-combined.csv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["Company", "Phone", "Address", "Prospect Vendor", "Tags"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for v in combined:
+            address1, city, state, postal_code, country = split_address(v.get("address") or "")
             writer.writerow({
-                "Company": v["name"],
-                "Phone": v["phone"] if v["phone"] != "N/A" else "",
-                "Address": v.get("address") or "",
-                "Prospect Vendor": v.get("prospect_vendor", 1),
-                "Tags": ", ".join(v["services"] + v["locations"])
+                "Company Name":   v["name"],
+                "Phone":          format_phone_e164(v["phone"]),
+                "Address1":       address1,
+                "City":           city,
+                "State":          state,
+                "Postal Code":    postal_code,
+                "Country":        country,
+                "Vendor Status":  v.get("vendor_status", "prospect"),
+                "Tags":           ", ".join(v["services"] + v["locations"]),
+                "Contact Source": "scraper",
             })
 
 
@@ -186,22 +181,30 @@ async def main():
     with open(config_path) as f:
         config = json.load(f)
 
-    services: dict = config["services"]
-    locations: list = config["locations"]
+    services:   dict = config["services"]
+    locations:  list = config["locations"]
+    exclusions: list = config.get("name_exclusion", [])
 
     JSON_DIR.mkdir(exist_ok=True)
     output_files = []
 
     for service_code, search_term in services.items():
         for location in locations:
-            slug = location_slug(location)
+            slug    = location_slug(location)
             out_file = JSON_DIR / f"{service_code}-{slug}.json"
-            url = build_url(search_term, location)
+            url     = build_url(search_term, location)
 
             print(f"\n[{service_code.upper()}] {search_term} in {location}")
             print(f"  URL: {url}")
 
             vendors = await scrape_vendors(url)
+
+            if exclusions:
+                before  = len(vendors)
+                vendors = [v for v in vendors if v["name"] and not is_excluded(v["name"], exclusions)]
+                excluded = before - len(vendors)
+                if excluded:
+                    print(f"  Excluded {excluded} vendor(s) by name filter")
 
             payload = [{"service": service_code, "location": location, "vendors": vendors}]
             with open(out_file, "w") as f:
@@ -210,12 +213,14 @@ async def main():
             print(f"  Saved {len(vendors)} vendors -> {out_file}")
             output_files.append(out_file)
 
-    # Combine all into one deduplicated list
+            delay = random.uniform(3, 7)
+            print(f"  Waiting {delay:.1f}s before next query...")
+            await asyncio.sleep(delay)
+
     print("\nCombining all results...")
     combined = combine_vendors(output_files)
     print(f"  {len(combined)} unique vendors found")
 
-    # Save JSON + CSV
     save_outputs(combined)
     print(f"\nDone. {len(combined)} vendors saved to vendors-combined.json and vendors-combined.csv")
 

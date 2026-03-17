@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI, FunctionCallingMode } from '@google/generative-ai';
 import type { AIProvider } from './aiConfig';
+import { logger } from '../lib/logger';
 
 // ─── Shared types ───────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ export interface AgentOptions {
 
 async function runAnthropic(opts: AgentOptions): Promise<void> {
   const client = new Anthropic({ apiKey: opts.apiKey });
-  const max = opts.maxIterations ?? 6;
+  const max = opts.maxIterations ?? 15;
 
   const tools: Anthropic.Tool[] = opts.tools.map((t) => ({
     name: t.name,
@@ -87,13 +88,15 @@ async function runAnthropic(opts: AgentOptions): Promise<void> {
     messages.push({ role: 'user', content: results });
     if (done) break;
   }
+  // If the loop ended without submit_tasks, flush the buffer anyway
+  await opts.onTasks([]);
 }
 
 // ─── OpenAI ─────────────────────────────────────────────────────────────────
 
 async function runOpenAI(opts: AgentOptions): Promise<void> {
   const client = new OpenAI({ apiKey: opts.apiKey });
-  const max = opts.maxIterations ?? 6;
+  const max = opts.maxIterations ?? 15;
 
   const tools: OpenAI.ChatCompletionTool[] = opts.tools.map((t) => ({
     type: 'function' as const,
@@ -143,6 +146,25 @@ async function runOpenAI(opts: AgentOptions): Promise<void> {
 
     if (done) break;
   }
+  // If the loop ended without submit_tasks, flush the buffer anyway
+  await opts.onTasks([]);
+}
+
+// ─── Retry helper for transient LLM errors (503 / overloaded) ───────────────
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 4000): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isTransient = msg.includes('503') || msg.toLowerCase().includes('overloaded') || msg.toLowerCase().includes('service unavailable');
+    if (retries > 0 && isTransient) {
+      logger.warn(`[LLM] Transient error, retrying in ${delayMs}ms (${retries} left): ${msg.slice(0, 120)}`);
+      await new Promise((r) => setTimeout(r, delayMs));
+      return withRetry(fn, retries - 1, delayMs * 2);
+    }
+    throw err;
+  }
 }
 
 // ─── Google Gemini ──────────────────────────────────────────────────────────
@@ -168,13 +190,13 @@ async function runGemini(opts: AgentOptions): Promise<void> {
   const chat = model.startChat({ history: [] });
 
   // Send initial message, then loop on the response
-  let response = (await chat.sendMessage(opts.userMessage)).response;
+  let response = (await withRetry(() => chat.sendMessage(opts.userMessage))).response;
 
   for (let i = 0; i < max; i++) {
     const parts = response.candidates?.[0]?.content?.parts ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fnCalls = parts.filter((p: any) => p.functionCall);
-    console.log(`[Gemini] iteration ${i}: ${fnCalls.length} fn call(s) —`, fnCalls.map((p: any) => p.functionCall?.name));
+    logger.info(`[Gemini] iteration ${i}: ${fnCalls.length} fn call(s) —`, fnCalls.map((p: any) => p.functionCall?.name));
     if (!fnCalls.length) break;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -198,8 +220,10 @@ async function runGemini(opts: AgentOptions): Promise<void> {
     if (done) break;
 
     // Send all tool results back and use the reply as the next response to inspect
-    response = (await chat.sendMessage(fnResults)).response;
+    response = (await withRetry(() => chat.sendMessage(fnResults))).response;
   }
+  // If the loop ended without submit_tasks, flush the buffer anyway
+  await opts.onTasks([]);
 }
 
 // ─── Simple single-call helper (no tool loop) ────────────────────────────────

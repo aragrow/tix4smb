@@ -8,6 +8,7 @@ import Tickets from '@/pages/Tickets';
 import TicketDetail from '@/pages/TicketDetail';
 import TicketNew from '@/pages/TicketNew';
 import Settings from '@/pages/Settings';
+import JobberExplorer from '@/pages/JobberExplorer';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,6 +32,7 @@ export default function App() {
               <Route path="tickets/new" element={<TicketNew />} />
               <Route path="tickets/:id" element={<TicketDetail />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="explorer" element={<JobberExplorer />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
