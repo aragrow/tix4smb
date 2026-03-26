@@ -42,7 +42,7 @@ interface GHLContact {
     Email?: { status: string };
     SMS?:   { status: string };
   };
-  customField?: Array<{ id: string; value: unknown }>;
+  customFields?: Array<{ id: string; value: unknown }>;
 }
 
 interface TaskClassification {
@@ -177,13 +177,14 @@ async function classifyTasks(
 // ─── Find GHL prospect vendors ────────────────────────────────────────────────
 
 async function findVendors(serviceCode: string, location: string): Promise<GHLContact[]> {
-  const classification = env.GHL_CONTACT_CLASSIFICATION;
+  const validValues       = env.GHL_VENDOR_STATUS_VALUES.split(',').map((v) => v.trim().toLowerCase());
+  const vendorStatusFieldId = env.GHL_VENDOR_STATUS_FIELD_ID ?? null;
 
   if (!hasGHLConfig()) {
     const results = (MOCK_GHL_CONTACTS as GHLContact[]).filter((c) => {
       const tags = c.tags ?? [];
       return (
-        c.classification === classification &&
+        validValues.includes((c.classification ?? '').toLowerCase()) &&
         tags.includes(serviceCode) &&
         tags.includes(location)
       );
@@ -194,44 +195,30 @@ async function findVendors(serviceCode: string, location: string): Promise<GHLCo
 
   const cfg = getGHLConfig()!;
 
-  // Find checkbox custom field ID for classification label
-  let checkboxFieldId: string | null = null;
-  if (classification) {
-    try {
-      type GHLField = { id: string; name: string; fieldKey?: string };
-      const fieldsData = await ghlREST<{ customFields?: GHLField[] }>(
-        `/locations/${cfg.location_id}/customFields`
-      );
-      const needle = classification.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const match = (fieldsData.customFields ?? []).find((f) => {
-        const fname = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const fkey  = (f.fieldKey ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return fname === needle || fkey.includes(needle) || fname.includes(needle);
-      });
-      if (match) checkboxFieldId = match.id;
-      else console.warn(`[RFP] Custom field "${classification}" not found in GHL location`);
-    } catch {
-      console.warn('[RFP] Could not fetch GHL custom fields — skipping classification filter');
-    }
+  // Fetch all contacts with pagination (GHL returns max 100 per page)
+  type ContactPage = { contacts?: GHLContact[]; meta?: { nextPageUrl?: string } };
+  const allContacts: GHLContact[] = [];
+  let url = `/contacts/?locationId=${cfg.location_id}&limit=100`;
+  while (url) {
+    const data = await ghlREST<ContactPage>(url);
+    allContacts.push(...(data.contacts ?? []));
+    const next = data.meta?.nextPageUrl ?? '';
+    // nextPageUrl is absolute — extract the path+query portion
+    url = next ? next.replace('https://services.leadconnectorhq.com', '') : '';
   }
 
-  const data = await ghlREST<{ contacts?: GHLContact[] }>(
-    `/contacts/?locationId=${cfg.location_id}&limit=100`
-  );
-  const contacts = data.contacts ?? [];
-
-  const filtered = contacts.filter((c) => {
+  const filtered = allContacts.filter((c) => {
     const tags = c.tags ?? [];
     let classMatch = true;
-    if (checkboxFieldId) {
-      const entry = (c.customField ?? []).find((f) => f.id === checkboxFieldId);
+    if (vendorStatusFieldId) {
+      const entry = (c.customFields ?? []).find((f) => f.id === vendorStatusFieldId);
       classMatch = entry !== undefined &&
-        (entry.value === true || entry.value === 'true' || entry.value === '1' || entry.value === 1);
+        validValues.includes(String(entry.value).toLowerCase());
     }
     return classMatch && tags.includes(serviceCode) && tags.includes(location);
   });
 
-  console.log(`[RFP] Found ${filtered.length} vendor(s) for ${serviceCode}/${location}`);
+  console.log(`[RFP] Found ${filtered.length} vendor(s) for ${serviceCode}/${location} (scanned ${allContacts.length} total)`);
   return filtered;
 }
 

@@ -19,7 +19,9 @@ const schema = z.object({
   JWT_REFRESH_SECRET: z.string({ required_error: 'JWT_REFRESH_SECRET is required' }),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
   API_URL: z.string().default('http://localhost:3001'),
-  GHL_CONTACT_CLASSIFICATION: z.string().default('PROSPECT CONTACT'),
+  GHL_CONTACT_CLASSIFICATION: z.string().default('vendor_status'),
+  GHL_VENDOR_STATUS_VALUES: z.string().default('prospect,active'),
+  GHL_VENDOR_STATUS_FIELD_ID: z.string().optional(),
   GHL_TEST_CONTACT_ID: z.string().optional(),
 });
 

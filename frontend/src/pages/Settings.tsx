@@ -36,6 +36,7 @@ interface GHLTestContact {
   phone?: string;
   tags?: string[];
   classification?: string;
+  customFields?: Array<{ id: string; value: unknown }>;
   communicationPreference?: string;
   dnd?: boolean;
   dndSettings?: GHLDNDSettings;
@@ -47,11 +48,13 @@ function isDND(c: GHLTestContact, channel: keyof GHLDNDSettings): boolean {
 
 interface GHLTestResult {
   contacts: GHLTestContact[];
-  classification: string;
+  vendorStatusFieldId: string | null;
+  validValues: string[];
   serviceTag: string;
   locationTag: string;
   mock: boolean;
   total: number;
+  scanned?: number;
 }
 
 type AIProvider = 'anthropic' | 'openai' | 'google';
@@ -708,7 +711,8 @@ export default function Settings() {
                 </h3>
                 {ghlTestResult && (
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Classification: <span className="text-foreground font-medium">{ghlTestResult.classification}</span>
+                    Field: <span className="text-foreground font-medium">vendor_status</span>
+                    {' · '}Values: <span className="text-foreground font-medium">{ghlTestResult.validValues.join(', ')}</span>
                     {' · '}Service: <span className="text-foreground font-medium">{ghlTestResult.serviceTag}</span>
                     {' · '}Location: <span className="text-foreground font-medium">{ghlTestResult.locationTag}</span>
                     {ghlTestResult.mock && <span className="ml-2 text-warning">(mock)</span>}
@@ -735,19 +739,38 @@ export default function Settings() {
                   <div className="space-y-2">
                     <p className="text-xs text-muted-foreground mb-3">
                       {ghlTestResult.total} contact{ghlTestResult.total !== 1 ? 's' : ''} matched
+                      {ghlTestResult.scanned != null && ` (scanned ${ghlTestResult.scanned})`}
                     </p>
                     {ghlTestResult.contacts.map((c) => {
                       const name = c.name ?? [c.firstName, c.lastName].filter(Boolean).join(' ') ?? c.id;
+                      const vendorStatus = (
+                        ghlTestResult.vendorStatusFieldId
+                          ? String(c.customFields?.find((f) => f.id === ghlTestResult.vendorStatusFieldId)?.value ?? c.classification ?? '')
+                          : c.classification ?? ''
+                      ).toLowerCase();
                       return (
                         <div key={c.id} className="rounded-lg border bg-muted/30 px-4 py-3 text-sm space-y-1">
                           <div className="flex items-center justify-between gap-2">
                             <p className="font-medium">{name}</p>
-                            {c.communicationPreference && (
-                              <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize
-                                bg-sky-500/10 text-sky-400 border-sky-500/30">
-                                {c.communicationPreference}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {vendorStatus && (
+                                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize ${
+                                  vendorStatus === 'prospect'
+                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                    : vendorStatus === 'active'
+                                    ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                                    : 'bg-muted text-muted-foreground border-border'
+                                }`}>
+                                  {vendorStatus}
+                                </span>
+                              )}
+                              {c.communicationPreference && (
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize
+                                  bg-sky-500/10 text-sky-400 border-sky-500/30">
+                                  {c.communicationPreference}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                             {c.email && !isDND(c, 'Email') && <span>{c.email}</span>}

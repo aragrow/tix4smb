@@ -16,16 +16,16 @@ export const MOCK_GHL_CONTACTS = [
   { id: 'ghl-c13', name: 'Blue Water Rentals LLC', email: 'info@bluewater.com',       phone: '(850) 555-0120', classification: 'ACTIVE CLIENT',   tags: ['vacation-rental'] },
   { id: 'ghl-c14', name: 'Emerald Coast Offices',  email: 'facilities@ecoffices.com', phone: '(850) 555-0125', classification: 'ACTIVE CLIENT',   tags: ['commercial', 'office'] },
   { id: 'ghl-c15', name: 'Marcus Taylor',          email: 'mtaylor@email.com',        phone: '(850) 555-0119', classification: 'ACTIVE CLIENT',   tags: ['lead', 'residential'] },
-  // Prospect vendor contacts — checkbox field "PROSPECT_VENDOR" = true, tagged by service code + location
-  { id: 'ghl-c16', name: 'John & Mary Smith',      email: 'jsmith@email.com',         phone: '(305) 555-0201', classification: 'PROSPECT_VENDOR', tags: ['rc', 'key west fl'],        communicationPreference: 'email',
+  // Prospect vendor contacts — vendor_status field = prospect|active, tagged by service code + location
+  { id: 'ghl-c16', name: 'John & Mary Smith',      email: 'jsmith@email.com',         phone: '(305) 555-0201', classification: 'prospect', tags: ['rc', 'key west'],        communicationPreference: 'email',
     dndSettings: { Call: { status: 'inactive' }, Email: { status: 'inactive' }, SMS: { status: 'inactive' } } },
-  { id: 'ghl-c17', name: 'Sunset Keys Rentals',    email: 'info@sunsetkeys.com',      phone: '(305) 555-0202', classification: 'PROSPECT_VENDOR', tags: ['rc', 'key west fl', 'vr'], communicationPreference: 'email',
+  { id: 'ghl-c17', name: 'Sunset Keys Rentals',    email: 'info@sunsetkeys.com',      phone: '(305) 555-0202', classification: 'active',   tags: ['rc', 'key west', 'vr'],  communicationPreference: 'email',
     dndSettings: { Call: { status: 'active' }, Email: { status: 'inactive' }, SMS: { status: 'active' } } },
-  { id: 'ghl-c18', name: 'Maria Elena Lopez',      email: 'mlopez@email.com',         phone: '(305) 555-0203', classification: 'PROSPECT_VENDOR', tags: ['rc', 'key west fl'],        communicationPreference: 'sms',
+  { id: 'ghl-c18', name: 'Maria Elena Lopez',      email: 'mlopez@email.com',         phone: '(305) 555-0203', classification: 'prospect', tags: ['rc', 'key west'],        communicationPreference: 'sms',
     dndSettings: { Call: { status: 'inactive' }, Email: { status: 'active' }, SMS: { status: 'inactive' } } },
-  { id: 'ghl-c19', name: 'Key West Condos LLC',    email: 'mgmt@kwcondos.com',        phone: '(305) 555-0204', classification: 'PROSPECT_VENDOR', tags: ['rc', 'key west fl', 'oc'], communicationPreference: 'email',
+  { id: 'ghl-c19', name: 'Key West Condos LLC',    email: 'mgmt@kwcondos.com',        phone: '(305) 555-0204', classification: 'active',   tags: ['rc', 'key west', 'oc'],  communicationPreference: 'email',
     dndSettings: { Call: { status: 'inactive' }, Email: { status: 'inactive' }, SMS: { status: 'inactive' } } },
-  { id: 'ghl-c20', name: 'Thomas Hartley',         email: 'thartley@email.com',       phone: '(305) 555-0205', classification: 'PROSPECT_VENDOR', tags: ['rc', 'islamorada fl'],      communicationPreference: 'phone',
+  { id: 'ghl-c20', name: 'Thomas Hartley',         email: 'thartley@email.com',       phone: '(305) 555-0205', classification: 'prospect', tags: ['rc', 'islamorada'],      communicationPreference: 'phone',
     dndSettings: { Call: { status: 'inactive' }, Email: { status: 'active' }, SMS: { status: 'active' } } },
 ];
 

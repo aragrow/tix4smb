@@ -199,12 +199,13 @@ router.post('/api/ghl/email', async (req: Request, res: Response) => {
 });
 
 // ─── Test Contact Query ───────────────────────────────────────────────────────
-// Queries contacts filtered by GHL_CONTACT_CLASSIFICATION + service tag + location tag.
+// Queries contacts filtered by vendor_status field + service tag + location tag.
 
 router.get('/api/ghl/contacts/test-query', async (req: Request, res: Response) => {
-  const classification = env.GHL_CONTACT_CLASSIFICATION;
-  const serviceTag    = (req.query.service  as string | undefined) ?? 'rc';
-  const locationTag   = (req.query.location as string | undefined) ?? 'key west fl';
+  const validValues         = env.GHL_VENDOR_STATUS_VALUES.split(',').map((v) => v.trim().toLowerCase());
+  const vendorStatusFieldId = env.GHL_VENDOR_STATUS_FIELD_ID ?? null;
+  const serviceTag          = (req.query.service  as string | undefined) ?? 'rc';
+  const locationTag         = (req.query.location as string | undefined) ?? 'key west';
 
   type GHLContact = {
     id: string;
@@ -233,59 +234,43 @@ router.get('/api/ghl/contacts/test-query', async (req: Request, res: Response) =
     const results = (MOCK_GHL_CONTACTS as GHLContact[]).filter((c) => {
       const tags = c.tags ?? [];
       return (
-        c.classification === classification &&
+        validValues.includes((c.classification ?? '').toLowerCase()) &&
         tags.includes(serviceTag) &&
         tags.includes(locationTag)
       );
     });
-    res.json({ contacts: results.slice(0, 5), classification, serviceTag, locationTag, mock: true, total: results.length });
+    res.json({ contacts: results.slice(0, 5), vendorStatusFieldId, validValues, serviceTag, locationTag, mock: true, total: results.length });
     return;
   }
 
   try {
     const cfg = getGHLConfig()!;
 
-    // Step 1: Find the checkbox field ID by name (PROSPECT_VENDOR is a custom checkbox in GHL)
-    type GHLField = { id: string; name: string; fieldKey?: string };
-    let checkboxFieldId: string | null = null;
-    if (classification) {
-      try {
-        const fieldsData = await ghlREST<{ customFields?: GHLField[] }>(
-          `/locations/${cfg.location_id}/customFields`
-        );
-        const needle = classification.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const match = (fieldsData.customFields ?? []).find((f) => {
-          const fname = f.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const fkey  = (f.fieldKey ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          return fname === needle || fkey.includes(needle) || fname.includes(needle);
-        });
-        if (match) checkboxFieldId = match.id;
-        else console.warn(`[GHL test-query] Custom field "${classification}" not found in location fields`);
-      } catch {
-        console.warn('[GHL test-query] Could not fetch custom fields — skipping classification filter');
-      }
+    // Fetch all contacts with pagination
+    type ContactPage = { contacts?: GHLContact[]; meta?: { nextPageUrl?: string } };
+    type ContactWithCustom = GHLContact & { customFields?: Array<{ id: string; value: unknown }> };
+    const allContacts: ContactWithCustom[] = [];
+    let url = `/contacts/?locationId=${cfg.location_id}&limit=100`;
+    while (url) {
+      const data = await ghlREST<ContactPage>(url);
+      allContacts.push(...((data.contacts ?? []) as ContactWithCustom[]));
+      const next = data.meta?.nextPageUrl ?? '';
+      url = next ? next.replace('https://services.leadconnectorhq.com', '') : '';
     }
 
-    // Step 2: Fetch contacts (all, filter client-side)
-    const data = await ghlREST<{ contacts?: GHLContact[] }>(
-      `/contacts/?locationId=${cfg.location_id}&limit=100`
-    );
-    const contacts = data.contacts ?? [];
-
-    // Step 3: Filter by checkbox value + tags
-    type ContactWithCustom = GHLContact & { customField?: Array<{ id: string; value: unknown }> };
-    const filtered = (contacts as ContactWithCustom[]).filter((c) => {
+    // Filter by vendor_status value + tags
+    const filtered = allContacts.filter((c) => {
       const tags = c.tags ?? [];
       let classMatch = true;
-      if (checkboxFieldId) {
-        const entry = (c.customField ?? []).find((f) => f.id === checkboxFieldId);
+      if (vendorStatusFieldId) {
+        const entry = (c.customFields ?? []).find((f) => f.id === vendorStatusFieldId);
         classMatch = entry !== undefined &&
-          (entry.value === true || entry.value === 'true' || entry.value === '1' || entry.value === 1);
+          validValues.includes(String(entry.value).toLowerCase());
       }
       return classMatch && tags.includes(serviceTag) && tags.includes(locationTag);
     });
 
-    res.json({ contacts: filtered.slice(0, 5), classification, serviceTag, locationTag, mock: false, total: filtered.length });
+    res.json({ contacts: filtered.slice(0, 5), vendorStatusFieldId, validValues, serviceTag, locationTag, mock: false, total: filtered.length, scanned: allContacts.length });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[GHL test-query]', message);
